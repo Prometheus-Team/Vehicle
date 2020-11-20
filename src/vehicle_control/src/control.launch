@@ -1,0 +1,14 @@
+<launch>
+    <!-- <node pkg="rosserial_python" type="serial_node.py" name="ArduinoConnection" args="_port:=/dev/ttyACM0 _baud:=57600"/> -->
+    <node pkg="rosserial_python" type="serial_node.py" name="ArduinoConnection" args="/dev/ttyACM0"/>
+
+    <node pkg="vehicle_control" type="vehicleAPI.py" name="api_node"/>
+    <node pkg="vehicle_control" type="manualControl.py" name="manual_control_node"/>
+    <!-- <node pkg="vehicle_control" type="localization.py" name="localization_node"/> -->
+    <!-- <node pkg="vehicle_planner" type="mapper.py" name="mapping_node"/> -->
+
+    <!-- <node pkg="tf" type="static_transform_publisher" name="visualization_anchor" args="0 0 0 0 0 0 1 map my_frame 10"/> -->
+    <!-- <node pkg="vehicle_planner" type="visualizeMap.py" name="visualization_node"/> -->
+    <!-- <node name="rviz" pkg="rviz" type="rviz" output="screen" /> -->
+
+</launch>
