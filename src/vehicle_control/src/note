@@ -1,1 +1,3 @@
 - areas should be initially unexplored, then become empty or wall later
+
+vehicle_lib/IntArr[] grid

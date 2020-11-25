@@ -1,0 +1,6 @@
+vehicle_lib/IntArr[] map
+vehicle_lib/Location start
+vehicle_lib/Location end
+
+---
+vehicle_lib/Location[] path

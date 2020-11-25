@@ -5,6 +5,7 @@ from std_msgs.msg import Float32, Int16, Header, Time, Empty, Int32
 from sensor_msgs.msg import Range
 from geometry_msgs.msg import Point
 from vehicle_lib.msg import Distance, Speed, Steps
+from vehicle_lib.srv import ScanArea
 from quaternion import Quaternion
 import pyrr, urllib, json, time, math, threading
 
@@ -15,7 +16,7 @@ class VehicleAPI:
         self.seqC = 0       # sequence number for the streamed values
         self.defaultScannerStep = 2 # 2 degrees rotated on every step
         self.scannerInitAngle = 90      # servo motor initial angle
-        self.speedToPWMRatio = 255.0/40.0        
+        self.speedToPWMRatio = self.computeSpeedToPWMRatio(102.0,3.247)        
         self.minDistanceToObstacle = 50 # in centimeters
         self.maxTimeForValidSpeed = 0.7 # in seconds
         self.lastSpeedCmd = (0, 0)
@@ -24,18 +25,20 @@ class VehicleAPI:
         self.timeLeft = self.timeRight = 0
         self.totLeftStep = self.totRightStep = 0
         self.mapper = None
+        self.curFactor = 0.3
+        self.preFactor = 0.7
+
+        self.lastStepLeft = self.lastStepRight = (0,0)
+        self.lastSpeedLeft = self.lastSpeedRight = 0
 
         head = threading.Thread(target=self.readOrientation)
         # self.rate = rospy.Rate(1)
 
         self.pubSpeedArd = rospy.Publisher('/arduino/speedCmd', Point, queue_size=10)
-        # self.pubSpeedRight = rospy.Publisher('/arduino/speed/rightCmd', Float32, queue_size=10)
         self.pubScan = rospy.Publisher('/arduino/scanCmd', Int16, queue_size=10)
 
-        self.subSpeedLeft = rospy.Subscriber('/arduino/speed/left', Float32, self.readSpeedLeft)
-        self.subSpeedRight = rospy.Subscriber('/arduino/speed/right', Float32, self.readSpeedRight)
-        self.subStepLeft = rospy.Subscriber('/arduino/step/left', Int32, self.readStepLeft)
-        self.subStepRight = rospy.Subscriber('/arduino/step/right', Int32, self.readStepRight)
+        self.subSpeed = rospy.Subscriber('/arduino/speed', Point, self.readSpeed)
+        self.subStep = rospy.Subscriber('/arduino/step', Point, self.readStep)
         self.subRange = rospy.Subscriber('/arduino/range', Range, self.readRange)
         self.subObstacleDistance = rospy.Subscriber('/arduino/obstacleDistance', Float32, self.checkObstacle)
         
@@ -49,17 +52,20 @@ class VehicleAPI:
         self.pubObstacle = rospy.Publisher('/pi/api/obstacleDistance', Float32, queue_size=10)
         self.pubFrontDis = rospy.Publisher('/pi/api/frontDistance', Distance, queue_size=10)
 
-        self.subRange = rospy.Subscriber('/pi/api/scanCmd', Empty, self.scanAreaCmd)
+        self.scanAreaSrv = rospy.Service('/pi/api/scanCmd', ScanArea, self.scanAreaCmd)
         self.subSpeed = rospy.Subscriber('/pi/api/speedCmd', Speed, self.speedCmd)
         # ==================================================
 
-        head.start()
+        # head.start()
 
     def initConfig(self):
         # Make the range sensor face to the front (90 deg)
         # Compute speedToPWMRatio
         # Turn the vehicle to face the North ????????
         pass
+
+    def convertSpeedToPWM(self, speed):
+        return speed * self.speedToPWMRatio
 
     # Speed left and right should be in PWM
     def speedCmd(self, speed):
@@ -69,62 +75,33 @@ class VehicleAPI:
             if speed.left == 0 or speed.right == 0:
                 self.pubSpeedArd.publish(Point(x=0, y=0))
             else:
-                self.pubSpeedArd.publish(Point(x=255*speed.left/abs(speed.left), y=255*speed.right/abs(speed.right)))
+                self.pubSpeedArd.publish(Point(x=self.convertSpeedToPWM(speed.left), y=self.convertSpeedToPWM(speed.right)))
         
     # inititate the servo rotation to scan the area for 180deg
     def scanAreaCmd(self, msg):
-        self.pubScan.publish(self.defaultScannerStep)
+        try:
+            self.pubScan.publish(self.defaultScannerStep)
+            return True
 
-    def readSpeedLeft(self, msg):
-        # if self.speedLeft > 0 and abs(self.speedLeft - msg.data) > self.speedLeft*0.2:
-        #     return
+        except:
+            return False
 
-        if time.time() - self.timeLeft > self.maxTimeForValidSpeed:
-            self.speedLeft = msg.data/60.0
+    def readSpeed(self, msg):
+        self.speedLeft = self.preFactor * self.speedLeft + self.curFactor * msg.x
+        self.speedRight = self.preFactor * self.speedRight + self.curFactor * msg.y
 
-        else:
-            self.speedLeft = 0.5 * self.speedLeft + 0.5 * (msg.data/60)
+        self.pubSpeed.publish(Speed(self.speedLeft, self.speedRight, None, self.lastSpeedCmd[0], self.lastSpeedCmd[1]))
 
-        self.timeLeft = time.time()
+    def readStep(self, msg):
+        self.totLeftStep = msg.x
+        self.totRightStep = msg.y
 
-        if time.time() - self.timeRight < self.maxTimeForValidSpeed:
-            self.pubSpeed.publish(Speed(self.speedLeft, 0, self.getHeader(), self.lastSpeedCmd[0], self.lastSpeedCmd[1]))
-    
-        else:
-            self.pubSpeed.publish(Speed(self.speedLeft, self.speedRight, self.getHeader(), self.lastSpeedCmd[0], self.lastSpeedCmd[1]))
-
-    def readSpeedRight(self, msg):
-
-        # if self.speedRight > 0.2 and abs(self.speedRight - msg.data) > self.speedRight*0.2:
-        #     return
-
-        if time.time() - self.timeRight > self.maxTimeForValidSpeed:
-            self.speedRight = msg.data/60.0
-        
-        else:
-            self.speedRight = 0.5 * self.speedRight + 0.5 * (msg.data/60.0)
-
-        self.timeRight = time.time()
-
-        if time.time() - self.timeLeft < self.maxTimeForValidSpeed:
-            self.pubSpeed.publish(Speed(self.speedLeft, self.speedRight, self.getHeader(), self.lastSpeedCmd[0], self.lastSpeedCmd[1]))
-        
-        else:
-            self.pubSpeed.publish(Speed(0, self.speedRight, self.getHeader(), self.lastSpeedCmd[0], self.lastSpeedCmd[1]))
-
-    def readStepLeft(self, msg):
-        self.totLeftStep += 1
-        self.pubStep.publish(Steps(self.totLeftStep, self.totRightStep, self.getHeader()))
-
-    def readStepRight(self, msg):
-        self.totRightStep += 1
         self.pubStep.publish(Steps(self.totLeftStep, self.totRightStep, self.getHeader()))
 
     def readRange(self, msg):
         self.pubRange.publish(Distance(msg.field_of_view, msg.range, msg.radiation_type==1, self.getHeader()))      
 
     def readOrientation(self):
-        import tf
         while True:
             response = urllib.urlopen(self.URL)
             data=json.loads(response.read())

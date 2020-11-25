@@ -1,0 +1,5 @@
+vehicle_lib/IntArr[] grid
+int32 x
+int32 y
+---
+vehicle_lib/IntArr nextPoint

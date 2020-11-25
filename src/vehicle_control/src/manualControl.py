@@ -13,7 +13,7 @@ import turtle
 class ManualControl:
     def __init__(self):
         self.seqC = 0
-        self.constSpeed = 255
+        self.constSpeed = 2
         self.up = self.down = self.left = self.right = False
         
         self.pubSpeed = rospy.Publisher('/pi/api/speedCmd', Speed, queue_size=10)

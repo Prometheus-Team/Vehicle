@@ -3,7 +3,7 @@
 import rospy
 from std_msgs.msg import Float32, Int16
 from sensor_msgs.msg import Range
-from vehicle_lib.msg import Distance, Speed, Location
+from vehicle_lib.msg import Distance, Speed, Location, Steps
 from quaternion import Quaternion
 import pyrr, urllib, json, time, math, threading
 
@@ -150,31 +150,34 @@ class Localization:
 
         self.travelTrace = {}
         self.travelPathTime = []
-        # self.rangeTrace = {}  # (time: range)
-        # self.headingTrace = {}  # (time: heading)
-        # self.speedTrace = {}  # (time: (speedLeft, speedRight))
-        # self.imuTrace = {}  # (time: imu)
+        self.speedTrace = {}  # (time: (speedLeft, speedRight))
 
         dataRecording = threading.Thread(target=self.recordData)
 
-        self.pubScan = rospy.Publisher('/pi/localization/currentLoc', Location, queue_size=10)
+        self.pubCurLoc = rospy.Publisher('/pi/localization/currentLoc', Location, queue_size=10)
 
         self.subFrontDistance = rospy.Subscriber('/pi/api/frontDistance', Distance, self.frontDistanceCallback)
         self.subHeading = rospy.Subscriber('/pi/api/heading', Float32, self.headingCallback)
         self.subSpeed = rospy.Subscriber('/pi/api/speed', Speed, self.speedCallback )
-    
-        # dataRecording.start()
-        # dataRecording.join()
+        self.subStep = rospy.Subscriber('/pi/api/step', Steps, self.stepsCallback )
+
+
+        dataRecording.daemon = True
+        dataRecording.start()
+        dataRecording.join()
 
     def recordData(self):
         while True:
             # print("Diff",self.getCurTimeInMilliSecs() ,self.inMotion,self.getCurTimeInMilliSecs() - self.inMotion)
             if self.getCurTimeInMilliSecs() - self.inMotion < 200:
-                # self.saved = False
-                print("Record")
+                self.saved = False
+                # print("Record")
                 t = self.getCurTimeInMilliSecs()
-                tra = TravelData(t, self.getHeading(), self.getRange(), self.getSpeedLeft(), self.getSpeedRight(), self.getSteps(), self.getIMU())
+                s = self.getSteps()
+                tra = TravelData(t, self.getHeading(), self.getRange(), self.getSpeedLeft(), self.getSpeedRight(), s, self.getIMU())
                 self.travelTrace[t] = tra
+                self.speedTrace[t] = s
+                # print(s)
 
                 time.sleep(1/self.dataRecordFreq)
 
@@ -182,10 +185,27 @@ class Localization:
             elif len(self.travelTrace) > 0 and self.saved is False:
                 # print("Save to file")
                 # self.save()
-                # self.saved = True
+                self.saved = True
                 # return
-                print("Compute", len(self.travelTrace))
+                # self.computeSpeed()
+                # print("Compute", len(self.travelTrace))
                 self.estimateLocation(self.lastKnownLocation.timestamp, self.inMotion)
+
+    def computeSpeed(self):
+        ts = self.speedTrace.keys()
+        ts.sort()
+        for i,j in zip(ts[:-1],ts[1:]):
+            print(i,j)
+            leftPre = self.speedTrace.get(i)[0]
+            rightPre = self.speedTrace.get(i)[1]
+
+            leftPost = self.speedTrace.get(j)[0]
+            rightPost = self.speedTrace.get(j)[1]
+
+            l = ((leftPost - leftPre)/20.0) * math.pi * 2 * 0.033
+            r = ((rightPost - rightPre)/20.0) * math.pi * 2 * 0.033
+
+            print(l, r)
 
     def headingCallback(self, msg):
         self.heading = msg.data
@@ -197,7 +217,7 @@ class Localization:
         self.range = msg.distance
 
     def speedCallback(self, msg):
-        print("Speed",self.speedLeft)
+        # print("Speed",self.speedLeft)
         self.rot += 1
 
         self.inMotion = self.getCurTimeInMilliSecs()
@@ -243,14 +263,31 @@ class Localization:
         times.sort()
         return times
 
+    def manipulateData(self, times):
+        v = {}
+        preSpeedLeft = preSpeedRight = 0
+
+        for i in times:
+            a = self.travelTrace.get(i)
+            if a.speedLeft != preSpeedLeft or a.speedRight != preSpeedRight:
+                v[i] = a
+
+        return v
+
+
     def estimateLocation(self, startTime, endTime):
         import sys
         t = 0
         preds = []
         times = self.getTravelData(startTime, endTime)
+        v = self.manipulateData(times)
+        ts = v.keys()
+        ts.sort()
+        # ts = times
         print("here1")
         st = None
-        for tStart, tEnd in zip(times[:-1], times[1:]):
+
+        for tStart, tEnd in zip(ts[:-1], ts[1:]):
             # tStart = tStart/1000
             # tEnd = tEnd/1000
             # print(tEnd - tStart)
@@ -267,7 +304,7 @@ class Localization:
                 rightDisSpeed = self.computeDistanceFromAccel(dataStart.speedRight[0], diff.rightAcceleration, diff.timestamp/1000.0)
                 # print(diff.leftAcceleration, diff.rightAcceleration)
                 speedDis = self.combineDistance(leftDisSpeed, rightDisSpeed, diff.heading)
-                print(leftDisSpeed, rightDisSpeed, speedDis)
+                # print(leftDisSpeed, rightDisSpeed, speedDis)
 
                 # distance from steps
                 leftDisStep = self.computeDistanceFromSteps(diff.steps[0])
@@ -279,10 +316,22 @@ class Localization:
 
 
         if len(preds) > 0:
-            x, y = self.combineLoc(preds)
-            print(times[0])
-            print(self.getCurrentLoc(x, y))
-            print("Here ",float(t)/len(times), len(times), startTime-endTime, self.rot)
+            x, y, x1, y1 = self.combineLoc(preds)
+            stS = self.travelTrace.get(times[0]).steps
+            stL = self.travelTrace.get(times[-1]).steps
+            cir = 2*math.pi*self.wheelRadius
+            d = ((((stL[0] - stS[0])/20.0)*cir) + (((stL[1] - stS[1])/20.0)*cir))/2.0
+            # # d = (((stL[1] - stS[1]-20)/20.0)*0.207)
+            print(stL[0]- stS[0], stL[1]- stS[1])
+            print(x,y,x1,y1)
+            # print(self.getCurrentLoc(x, y))
+            # print("Here ",((float(t)/len(ts)) + y)/2, len(ts), startTime-endTime)
+            self.travelTrace = {}
+            # self.rot = 0
+            # k = (stL[1] - stS[1])/20.0
+            print("Distance Exact: ", d, ((stL[0] - stS[0]) + (stL[1] - stS[1]))/200.0)
+
+
             # self.lastKnownLocation.x = x
             # self.lastKnownLocation.y = y
             # self.lastKnownLocation.timestamp = self.inMotion
@@ -290,16 +339,19 @@ class Localization:
             # sys.exit()
 
     def combineLoc(self, preds):
-        x = 0
-        y = 0
+        xSp=xSt = 0
+        ySp=ySt = 0
 
         for pred in preds:
-            coord = pred.getCoord(pred.speedDis)
+            coordSp = pred.getCoord(pred.speedDis)
+            coordSt = pred.getCoord(pred.stepDis)
             # coord = pred.getCoord(pred.stepDis)
-            x += coord[0][0]
-            y += coord[0][1]
+            xSp += coordSp[0][0]
+            ySp += coordSp[0][1]
+            xSt += coordSt[1][0]
+            ySt += coordSt[1][1]
 
-        return x, y
+        return xSp, ySp, xSt, ySt
 
     def getCurrentLoc(self, x, y):
         return self.lastKnownLocation.x + x, self.lastKnownLocation.y + y
@@ -388,9 +440,9 @@ class Localization:
 def main():
     rospy.init_node("Localization")
     # print(rospy.get_time())
-    # Localization()
-    Localization().test()
-    # rospy.spin()
+    Localization()
+    # Localization().test()
+    rospy.spin()
 
 if __name__=='__main__':
     main()

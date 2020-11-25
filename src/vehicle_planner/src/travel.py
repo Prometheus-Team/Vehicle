@@ -1,5 +1,10 @@
+#!/usr/bin/env python
+
+import rospy, math
 import numpy as np
-import math
+
+from vehicle_lib.srv import GetShortestPath
+from vehicle_lib.msg import Location
 
 class Travel:
     A_STAR_STRGY = 'A*'
@@ -9,7 +14,24 @@ class Travel:
         self.edges = {}
         self.edgesIndex = {}
         self.randomMap()
-        print(self.map)
+
+        self.getShortestPathSrv = rospy.Service('/pi/travel/getShortestPath', GetShortestPath, self.getShortestPathCallback)
+
+    def getShortestPathCallback(self, msg):
+        start = msg.start
+        end = msg.end
+        grid = msg.map
+        self.map = np.array([list(i.pts) for i in grid])
+
+        p = self.getShortestPath((start.x, start.y), (end.x, end.y))
+
+        if p:
+            path = self.getPathToFollow((start.x, start.y), p)
+            path.reverse()
+
+            return [Location(i[0], i[1]) for i in path]
+
+        return []
 
     def randomMap(self):
         x = np.random.rand(20,20)
@@ -92,7 +114,7 @@ class Travel:
         return None
 
     # ngraphsearch
-    def getShortestPath(self, start, end, strategy):
+    def getShortestPath(self, start, end):
         self.edges[("Start", start)] = 0
         self.edgesIndex[0] = ("Start", start)
 
@@ -141,31 +163,45 @@ class Travel:
             finalEdge = self.edgesIndex[self.parentPaths[indFinalEdge]]
         return path
 
-from visualizeMap import MapViz
-from pathSmoother import SmoothPath
 
 def main():
-    srch = Travel()
-    map = MapViz()
-    sm = SmoothPath()
+    rospy.init_node("ShortestPathComputingNode")
+    Travel()
+    rospy.spin()
 
-    strt = (2,3)
-    x = srch.ngraphSearch(strt,(13,16),srch.A_STAR_STRGY)
+if __name__=='__main__':
+    main()
 
-    if x:
-        path = srch.getPathToFollow(strt, x)
-        path.reverse()
-        print(path)
-        c = sm.smoothen(path)
-        sm.printPaths(path, c)
-        map.run(srch.map, c)
 
-        return
 
-    print("No path found")
-    return
+
+
+
+# from visualizeMap import MapViz
+# from pathSmoother import SmoothPath
+
+# def main():
+#     srch = Travel()
+#     map = MapViz()
+#     sm = SmoothPath()
+
+#     strt = (2,3)
+#     x = srch.getShortestPath(strt,(13,16),srch.A_STAR_STRGY)
+
+#     if x:
+#         path = srch.getPathToFollow(strt, x)
+#         path.reverse()
+#         print(path)
+#         c = sm.smoothen(path)
+#         sm.printPaths(path, c)
+#         map.run(srch.map, c)
+
+#         return
+
+#     print("No path found")
+#     return
 
     
 
-main()
+# main()
 # srch.search()

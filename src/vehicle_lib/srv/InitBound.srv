@@ -1,0 +1,9 @@
+int32 width
+int32 height
+int32 left
+int32 right
+int32 up
+int32 down
+int32 detail
+---
+bool done

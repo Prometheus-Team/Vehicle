@@ -6,27 +6,30 @@ from std_msgs.msg import Empty, Float32
 from geometry_msgs.msg import Point
 from nav_msgs.msg import GridCells
 
-from vehicle_lib.msg import Distance, Location
+from vehicle_lib.msg import Distance, Location, IntArr
+from vehicle_lib.srv import GetMap, InitMap
 from tf import transformations as tra
 
-import math
+import math, time
 import numpy as np
 # from visualizeMap import MapViz
 
 class MapBuilder:
-    def __init__(self, width=20, height=20):
+    def __init__(self, width=200, height=200):
         self.cellWidth = 0.3
         self.cellHeight = 0.3
         self.map = None
         self.heading = 0
         self.curLoc = (0, 0)
+        self.lastScanTime = 0
+        self.scanCompleted = True
 
         self.maxCorrectDistance = 300
         self.bufferLayer = 7
         self.worldToMapRatio = 0.02    # 1 cell = 0.02 meters in the world 
 
-        self.width = math.ceil(width / self.worldToMapRatio)
-        self.height = math.ceil(height / self.worldToMapRatio)
+        self.width = width
+        self.height = height
 
 
         self.pubScanArea = rospy.Publisher('/pi/api/scanCmd', Empty, queue_size=10)
@@ -39,14 +42,42 @@ class MapBuilder:
         self.pubPathViz = rospy.Publisher('/viz/path', GridCells, queue_size=10)
         self.pubCurLocViz = rospy.Publisher('/viz/curLoc', GridCells, queue_size=10)
 
+        # Initialize the map and return it when requested 
+        self.initMapSrv = rospy.Service('/pi/mapper/initMap', InitMap, self.getMapHandler)
+        self.getMapSrv = rospy.Service('/pi/mapper/getMap', GetMap, self.getMapHandler)
 
-        self.initMap(self.width, self.height)
+
+        # self.initMap(self.width, self.height)
 
     def initMap(self, x, y, layer=11):
-        self.map = np.zeros((layer, x, y))
+        self.map = np.zeros((int(layer), int(x), int(y)))
+
+    def initMapHandler(self, msg):
+        try:
+            self.initMap(msg.width, msg.height)
+            return True
+
+        except:
+            return False
 
     def getMap(self):
-        return self.map[0:10,:,:].sum(axis=0) > 2
+        return self.map[0:10,:,:].sum(axis=0) > 0
+
+    def getMapHandler(self, msg):
+        try:
+            for i in range(3):
+                if not self.scanCompleted:
+                    time.sleep(3)
+                
+                elif not self.scanCompleted and i >= 2:
+                    return []
+
+                else:
+                    m = self.getMap()
+                    return self.convertMapToArr(m)
+
+        except:
+            return []
 
     def curLocListener(self, msg):
         self.setCurLoc(msg.data)
@@ -67,6 +98,7 @@ class MapBuilder:
         self.heading = heading
 
     def scanCallback(self, msg):
+        self.scanCompleted = False
         curLoc = (0, 0)
         dir = 0
         i = 180-msg.angle
@@ -81,9 +113,12 @@ class MapBuilder:
                 pt = self.convertPointToGrid(curLoc, self.convertRangeToPoint(msg.distance, i), dir)
                 self.plotPointOnMap(pt)
 
-            if msg.last:
-                self.pubMapViz.publish(self.convertMapToPoints())
-                self.pubCurLocViz.publish()
+        if msg.last:
+            self.scanCompleted = True
+            # self.pubMapViz.publish(self.convertMapToPoints())
+            # self.pubCurLocViz.publish()
+
+        self.lastScanTime = time.time()
 
     def degToRad(self, ang):
         return ang * math.pi / 180
@@ -169,6 +204,14 @@ class MapBuilder:
 
         return points
 
+    def convertMapToArr(self, map):
+        return [IntArr(i) for i in map]
+        # arr = []
+        # for i in self.map:
+        #     arr.append(IntArr(i))
+
+        # return arr
+
     # def testRange(self):
     #     import random
     #     firstLoc = [(0,0),(150,50)]
@@ -204,8 +247,8 @@ class MapBuilder:
 
 
 def main():
-    rospy.init_node("Mapper")
-    MapBuilder(500,500)
+    rospy.init_node("MapperNode")
+    MapBuilder(200,200)
     rospy.spin()
 
 if __name__=='__main__':
