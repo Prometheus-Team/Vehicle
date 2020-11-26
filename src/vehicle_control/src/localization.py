@@ -45,7 +45,7 @@ class TravelData:
         diff.timestamp = self.timestamp - preData.timestamp
         diff.heading = self.heading - preData.heading
         # diff.range = self.range - preData.range        
-        diff.steps = (self.steps[0]-preData.steps[1], self.steps[1]-preData.steps[1])
+        diff.steps = (self.steps[0]-preData.steps[0], self.steps[1]-preData.steps[1])
 
         acc = self.computeAccelration(preData)
         diff.leftAcceleration = acc[0]
@@ -88,8 +88,18 @@ class LastLocation:
         self.heading = heading
         self.timestamp = timestamp
 
+    def updateLoc(self, x, y, heading, timestamp):
+        self.x += x
+        self.y += y
+        self.heading = heading
+        self.timestamp = timestamp
+
+    def getLoc(self):
+        return Location(self.x, self.y, self.heading, None)
+
+
 class Prediction:
-    def __init__(self, speedDis, stepDis, rangeDis, heading):
+    def __init__(self, speedDis, stepDis, rangeDis, heading, direction):
         self.speedEff = 0.7
         self.stepEff = 0.4
         self.rangeEff = 0.5
@@ -99,6 +109,7 @@ class Prediction:
         self.rangeDis = rangeDis
         self.imuDis = None
         self.heading = heading
+        self.direction = direction      # Forward, backward, left, right
 
     def combine(self):
         avg = (self.speedDis + self.stepDis + self.rangeDis) / 3
@@ -132,14 +143,13 @@ class Localization:
         self.maxValidTime = 50
         self.wheelRadius = 0.033
         self.wheelGap = 0.14    # in meters
-        self.revToStepRatio = 20    # 1 rev = 20 steps
+        self.revToStepRatio = 20.0    # 1 rev = 20 steps
         self.distanceDiffTolerance = 0.05   # in meters
         self.headingDiffTolerance = 2   # in angles
-        self.rot = 0
 
-        self.lastKnownLocation = LastLocation(0,0,0,time.time())
+        self.lastKnownLocation = LastLocation(0,0,0,self.getCurTimeInMilliSecs())
         self.inMotion = 0
-        self.saved = False
+        self.locationComputed = False
 
         self.heading = 0
         self.range = 0
@@ -149,10 +159,7 @@ class Localization:
         self.imu = None
 
         self.travelTrace = {}
-        self.travelPathTime = []
-        self.speedTrace = {}  # (time: (speedLeft, speedRight))
-
-        dataRecording = threading.Thread(target=self.recordData)
+        self.travelHistory = {}
 
         self.pubCurLoc = rospy.Publisher('/pi/localization/currentLoc', Location, queue_size=10)
 
@@ -161,51 +168,32 @@ class Localization:
         self.subSpeed = rospy.Subscriber('/pi/api/speed', Speed, self.speedCallback )
         self.subStep = rospy.Subscriber('/pi/api/step', Steps, self.stepsCallback )
 
-
-        dataRecording.daemon = True
-        dataRecording.start()
-        dataRecording.join()
+        self.recordData()
+        # dataRecording = threading.Thread(target=self.recordData)
+        # dataRecording.daemon = True
+        # dataRecording.start()
+        # dataRecording.join()
 
     def recordData(self):
         while True:
-            # print("Diff",self.getCurTimeInMilliSecs() ,self.inMotion,self.getCurTimeInMilliSecs() - self.inMotion)
+            # Record motion state of vehicle if its in motion
             if self.getCurTimeInMilliSecs() - self.inMotion < 200:
-                self.saved = False
-                # print("Record")
+                self.locationComputed = False
+
                 t = self.getCurTimeInMilliSecs()
-                s = self.getSteps()
-                tra = TravelData(t, self.getHeading(), self.getRange(), self.getSpeedLeft(), self.getSpeedRight(), s, self.getIMU())
+                tra = TravelData(t, self.getHeading(), self.getRange(), self.getSpeedLeft(), self.getSpeedRight(), self.getSteps(), self.getIMU())
                 self.travelTrace[t] = tra
-                self.speedTrace[t] = s
-                # print(s)
 
                 time.sleep(1/self.dataRecordFreq)
 
-            # elif len(self.travelTrace) > 0 and self.saved is False:
-            elif len(self.travelTrace) > 0 and self.saved is False:
-                # print("Save to file")
-                # self.save()
-                self.saved = True
-                # return
-                # self.computeSpeed()
-                # print("Compute", len(self.travelTrace))
+            # Compute current location once the vehicle becomes stationary
+            elif len(self.travelTrace) > 0 and self.locationComputed is False:
+                self.locationComputed = True
                 self.estimateLocation(self.lastKnownLocation.timestamp, self.inMotion)
 
-    def computeSpeed(self):
-        ts = self.speedTrace.keys()
-        ts.sort()
-        for i,j in zip(ts[:-1],ts[1:]):
-            print(i,j)
-            leftPre = self.speedTrace.get(i)[0]
-            rightPre = self.speedTrace.get(i)[1]
+                # Store the current uninterrupted travel history in the archive
+                self.archiveTravelTrace()
 
-            leftPost = self.speedTrace.get(j)[0]
-            rightPost = self.speedTrace.get(j)[1]
-
-            l = ((leftPost - leftPre)/20.0) * math.pi * 2 * 0.033
-            r = ((rightPost - rightPre)/20.0) * math.pi * 2 * 0.033
-
-            print(l, r)
 
     def headingCallback(self, msg):
         self.heading = msg.data
@@ -217,9 +205,6 @@ class Localization:
         self.range = msg.distance
 
     def speedCallback(self, msg):
-        # print("Speed",self.speedLeft)
-        self.rot += 1
-
         self.inMotion = self.getCurTimeInMilliSecs()
         self.speedLeft = (msg.left, msg.expLeft)
         self.speedRight = (msg.right, msg.expRight)
@@ -274,44 +259,39 @@ class Localization:
 
         return v
 
+    def archiveTravelTrace(self):
+        a = self.travelTrace.keys()
+        a.sort()
+
+        self.travelHistory[(a[0], a[-1])] = self.travelTrace
+        self.travelTrace = {}
 
     def estimateLocation(self, startTime, endTime):
         import sys
-        t = 0
         preds = []
         times = self.getTravelData(startTime, endTime)
         v = self.manipulateData(times)
         ts = v.keys()
         ts.sort()
-        # ts = times
-        print("here1")
-        st = None
 
         for tStart, tEnd in zip(ts[:-1], ts[1:]):
-            # tStart = tStart/1000
-            # tEnd = tEnd/1000
-            # print(tEnd - tStart)
             if tEnd - tStart <= self.maxValidTime:
                 dataStart = self.travelTrace.get(tStart)
                 dataEnd = self.travelTrace.get(tEnd)
-                t += dataStart.speedRight[0]
-                # print(dataStart.steps)
-                # print(dataEnd.range)
+
                 diff = dataEnd.getDiff(dataStart)
 
                 # distance from speedometer
                 leftDisSpeed = self.computeDistanceFromAccel(dataStart.speedLeft[0], diff.leftAcceleration, diff.timestamp/1000.0)
                 rightDisSpeed = self.computeDistanceFromAccel(dataStart.speedRight[0], diff.rightAcceleration, diff.timestamp/1000.0)
-                # print(diff.leftAcceleration, diff.rightAcceleration)
                 speedDis = self.combineDistance(leftDisSpeed, rightDisSpeed, diff.heading)
-                # print(leftDisSpeed, rightDisSpeed, speedDis)
 
                 # distance from steps
                 leftDisStep = self.computeDistanceFromSteps(diff.steps[0])
                 rightDisStep = self.computeDistanceFromSteps(diff.steps[1])
                 stepDis = self.combineDistance(leftDisStep, rightDisStep, diff.heading)
-                # print(leftDisStep)
-                pred = Prediction(speedDis, stepDis, diff.range, diff.heading)
+
+                pred = Prediction(speedDis, stepDis, diff.range, diff.heading, diff.direction)
                 preds.append(pred)
 
 
@@ -326,16 +306,12 @@ class Localization:
             print(x,y,x1,y1)
             # print(self.getCurrentLoc(x, y))
             # print("Here ",((float(t)/len(ts)) + y)/2, len(ts), startTime-endTime)
-            self.travelTrace = {}
-            # self.rot = 0
+
+            # self.travelTrace = {}
             # k = (stL[1] - stS[1])/20.0
             print("Distance Exact: ", d, ((stL[0] - stS[0]) + (stL[1] - stS[1]))/200.0)
-
-
-            # self.lastKnownLocation.x = x
-            # self.lastKnownLocation.y = y
-            # self.lastKnownLocation.timestamp = self.inMotion
-
+            self.updateCurrentLoc(x1, (abs(y1)/y1)*d,0)
+            print("Absolute Location: ",self.lastKnownLocation.x, self.lastKnownLocation.y)
             # sys.exit()
 
     def combineLoc(self, preds):
@@ -345,16 +321,26 @@ class Localization:
         for pred in preds:
             coordSp = pred.getCoord(pred.speedDis)
             coordSt = pred.getCoord(pred.stepDis)
-            # coord = pred.getCoord(pred.stepDis)
-            xSp += coordSp[0][0]
-            ySp += coordSp[0][1]
-            xSt += coordSt[1][0]
-            ySt += coordSt[1][1]
+
+            if pred.direction == Direction.Backward:
+                xSp += -coordSp[0][0]
+                ySp += -coordSp[0][1]
+                xSt += -coordSt[1][0]
+                ySt += -coordSt[1][1]
+                
+            else:
+                xSp += coordSp[0][0]
+                ySp += coordSp[0][1]
+                xSt += coordSt[1][0]
+                ySt += coordSt[1][1]
 
         return xSp, ySp, xSt, ySt
 
-    def getCurrentLoc(self, x, y):
-        return self.lastKnownLocation.x + x, self.lastKnownLocation.y + y
+    def updateCurrentLoc(self, x, y, heading):
+        self.lastKnownLocation.updateLoc(x, y, heading, self.inMotion)
+
+        # Publish updated location to current location topic
+        self.pubCurLoc.publish(self.lastKnownLocation.getLoc())
 
     def computeDistanceFromAccel(self, vi, acc, t):
         return vi * t + (0.5 * acc * t**2)
@@ -363,22 +349,22 @@ class Localization:
         return 2 * math.pi * self.wheelRadius * (stepDiff/self.revToStepRatio)
 
     def combineDistance(self, left, right, angle):
-        # print(left-right)
         if angle < self.headingDiffTolerance or abs(left-right) <= self.distanceDiffTolerance:
             return (left+right)/2
 
-        elif left < right and angle < 0:
-            rIn = left/abs(angle)
-            rOut = (right/abs(angle)) - self.wheelGap
+        # elif left < right and angle < 0:
+        #     rIn = left/abs(angle)
+        #     rOut = (right/abs(angle)) - self.wheelGap
 
-        elif left > right and angle > 0:
-            rIn = right/angle
-            rOut = (left/angle) - self.wheelGap
+        # elif left > right and angle > 0:
+        #     rIn = right/angle
+        #     rOut = (left/angle) - self.wheelGap
 
-        cIn = 2 * (rIn + (self.wheelGap)/2) * math.sin(self.degToRad(angle)/2)
-        cOut = 2 * (rOut - (self.wheelGap/2)) * math.sin(self.degToRad(angle)/2)
+        #r = rIn + rOut
+        r = (left/abs(angle)) + (right/abs(angle)) - self.wheelGap
 
-        return (cIn + cOut) / 2
+        # return (2 * math.sin(self.degToRad(angle)/2) * (rIn + rOut))/2
+        return math.sin(self.degToRad(angle)/2) * r
 
     def degToRad(self, ang):
         return ang * math.pi / 180
@@ -442,6 +428,7 @@ def main():
     # print(rospy.get_time())
     Localization()
     # Localization().test()
+    # print("Spinning ================================================================")
     rospy.spin()
 
 if __name__=='__main__':

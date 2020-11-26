@@ -11,7 +11,7 @@ import pyrr, urllib, json, time, math, threading
 
 
 class VehicleAPI:
-    URL = "http://192.168.1.103:8080/sensors.json"
+    URL = "http://192.168.43.1:8080/sensors.json"
     def __init__(self):
         self.seqC = 0       # sequence number for the streamed values
         self.defaultScannerStep = 2 # 2 degrees rotated on every step
@@ -24,9 +24,9 @@ class VehicleAPI:
         self.speedLeft = self.speedRight = self.stepLeft = self.stepRight = self.heading = 0
         self.timeLeft = self.timeRight = 0
         self.totLeftStep = self.totRightStep = 0
-        self.mapper = None
         self.curFactor = 0.3
         self.preFactor = 0.7
+        self.inMotion = time.time()
 
         self.lastStepLeft = self.lastStepRight = (0,0)
         self.lastSpeedLeft = self.lastSpeedRight = 0
@@ -56,7 +56,8 @@ class VehicleAPI:
         self.subSpeed = rospy.Subscriber('/pi/api/speedCmd', Speed, self.speedCmd)
         # ==================================================
 
-        # head.start()
+        head.start()
+        # self.readOrientation()
 
     def initConfig(self):
         # Make the range sensor face to the front (90 deg)
@@ -87,10 +88,25 @@ class VehicleAPI:
             return False
 
     def readSpeed(self, msg):
-        self.speedLeft = self.preFactor * self.speedLeft + self.curFactor * msg.x
-        self.speedRight = self.preFactor * self.speedRight + self.curFactor * msg.y
+        left = msg.x
+        right = msg.y
+        
+        if self.lastSpeedCmd[0] < 0:
+            left *= -1
+
+        if self.lastSpeedCmd[1] < 0:
+            right *= -1 
+
+        if time.time() - self.inMotion > 0.2:
+            self.speedLeft = left
+            self.speedRight = right
+
+        else:
+            self.speedLeft = self.preFactor * self.speedLeft + self.curFactor * left
+            self.speedRight = self.preFactor * self.speedRight + self.curFactor * left
 
         self.pubSpeed.publish(Speed(self.speedLeft, self.speedRight, None, self.lastSpeedCmd[0], self.lastSpeedCmd[1]))
+        self.inMotion = time.time()
 
     def readStep(self, msg):
         self.totLeftStep = msg.x

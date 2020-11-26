@@ -11,7 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   geometry_msgs
-  gazebo_ros
+#  gazebo_ros
   message_generation
 )
 
