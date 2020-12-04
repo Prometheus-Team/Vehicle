@@ -16,7 +16,7 @@ class Controller:
     def __init__(self, PIDParamVel, PIDParamPos,PIDParamW, timeDurationVel = 0.1, timeDurationPos=0.3, ):
         self.currentPosition = numpy.array([0.0,0.0])
         self.goalPosition = numpy.array([0.0,0.0])
-        self.goalThetha=atan(self.goalPosition[1]-self.currentPosition[1]/self.currentPosition[0]-self.currentPosition[0] )
+        # self.goalThetha=atan(self.goalPosition[1]-self.currentPosition[1]/self.currentPosition[0]-self.currentPosition[0] )
         self.currentVelocity= numpy.array([0.0,0.0])
         self.rightWheelVelocityGoal=0.0
         self.leftWheelVelocityGoal=0.0
@@ -25,7 +25,7 @@ class Controller:
         self.timeDurationVel=timeDurationVel
         self.timeDurationPos=0
         self.positionUpdated=False
-
+        self.goalVelocity=[1.0,1.0]
 
         self.clampingLimit=0
         self.PIDParamW=PIDParamW
@@ -46,7 +46,7 @@ class Controller:
         self.time=0
         self.seqC = 0
 
-        self.rotationPhase = True
+        self.rotationPhase = False
         
 
         self.subSpeed = rospy.Subscriber('/pi/api/speed', Speed, self.speedCallback )
@@ -56,6 +56,9 @@ class Controller:
         self.pubSpeed = rospy.Publisher('/pi/api/speedCmd', Speed, queue_size=10)
 
         self.gotoSrv = rospy.Service('/pi/steering/goto', Goto, self.gotoService)
+
+        b = threading.Thread(target=self.pidLoop)
+        b.start()
 
     def speedCallback(self, msg):
         self.currentVelocity = numpy.array([msg.right, msg.left])
@@ -100,6 +103,7 @@ class Controller:
         self.posIntegError=numpy.array([0.0,0.0])
         self.arrived = False
         self.rotationPhase=True
+        self.goalVelocity=[0.0,0.0]
 
     def rotationPhasePID(self):
         error=self.goalThetha-self.currentOrientation
@@ -141,22 +145,21 @@ class Controller:
         velDerivative = (velError- self.prevErrorVel)/self.timeDurationVel
 
         outputVel= self.PIDParamVel.proportional *velError + self.PIDParamVel.integral *self.velIntegError + self.PIDParamVel.derivative *velDerivative
-    
+        outputVel += self.currentVelocity
         self.prevErrorVel=velError
 
         #outPutRPM=numpy.array(outputVel)/(2*math.pi* self.wheelRadius)
-        self.time+=1
         self.sendSpeedCmd(outputVel[0],outputVel[1])
 
     def pidLoop(self):
 
         while not self.arrived:
-            if self.currentPosition==self.goalPosition:
-                outputVel=[0.0,0.0]
-                self.arrived=True
-                self.sendSpeedCmd(outputVel[0],outputVel[1])
+            # if self.currentPosition==self.goalPosition:
+            #     outputVel=[0.0,0.0]
+            #     self.arrived=True
+            #     self.sendSpeedCmd(outputVel[0],outputVel[1])
 
-                return True
+            #     return True
 
             if self.rotationPhase==True:
                 if self.currentOrientation==self.goalThetha:
@@ -167,20 +170,23 @@ class Controller:
                 
 
             else:
-                if self.time%4==0:          
-                    self.positionPID()
+                #if self.time%3==0:          
+                    #self.positionPID()
                 self.velocityPID()
-            sleep(1/3)
+
+                self.time+=1
+                sleep(0.1)
 
         return False
 
 
 def main():
     rospy.init_node("InitialRotatePID")
-    pidParamVel=PIDParam(1,0,0)
+    pidParamVel=PIDParam(1.0,0,0)
     pidParamPos=PIDParam(0.1,0.01,0.1)
     pidParamW=PIDParam(0.1,0.01,0.1)
-    Controller(pidParamVel,pidParamPos,pidParamW)
+    a = Controller(pidParamVel,pidParamPos,pidParamW)
+    a.goalVelocity = [1.0,1.0]
     rospy.spin()
 
 if __name__=='__main__':

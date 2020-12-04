@@ -1,6 +1,6 @@
 import rospy, math, time
 from vehicle_lib.srv import Explore, InitBound, InitMap, GetMap, ScanArea, GetShortestPath
-from vehicle_lib.msg import Location, Speed
+from vehicle_lib.msg import Location, Speed, Path
 import enum
 
 class Boundary:
@@ -53,6 +53,8 @@ class Master:
 
         # Topics
         self.subCurLoc = rospy.Subscriber('/pi/localization/curLoc', Location, self.curLocListener)
+
+        # self.pubSteeringCmd = rospy.Publisher('/pi/steering/travel', Path, queue_size=10)
 
 
     def config(self):

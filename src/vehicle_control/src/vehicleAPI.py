@@ -11,12 +11,12 @@ import pyrr, urllib, json, time, math, threading
 
 
 class VehicleAPI:
-    URL = "http://192.168.43.1:8080/sensors.json"
+    URL = "http://192.168.0.101:8080/sensors.json"
     def __init__(self):
         self.seqC = 0       # sequence number for the streamed values
         self.defaultScannerStep = 2 # 2 degrees rotated on every step
         self.scannerInitAngle = 90      # servo motor initial angle
-        self.speedToPWMRatio = self.computeSpeedToPWMRatio(102.0,3.247)        
+        self.speedToPWMRatio = self.computeSpeedToPWMRatio(62.0,0.99)        
         self.minDistanceToObstacle = 50 # in centimeters
         self.maxTimeForValidSpeed = 0.7 # in seconds
         self.lastSpeedCmd = (0, 0)
@@ -24,8 +24,8 @@ class VehicleAPI:
         self.speedLeft = self.speedRight = self.stepLeft = self.stepRight = self.heading = 0
         self.timeLeft = self.timeRight = 0
         self.totLeftStep = self.totRightStep = 0
-        self.curFactor = 0.3
-        self.preFactor = 0.7
+        self.curFactor = 0.2
+        self.preFactor = 0.8
         self.inMotion = time.time()
 
         self.lastStepLeft = self.lastStepRight = (0,0)
@@ -71,7 +71,8 @@ class VehicleAPI:
     # Speed left and right should be in PWM
     def speedCmd(self, speed):
         if int(time.time()) - speed.header.stamp.secs <= 2:
-            self.lastSpeedCmd = (speed.left, speed.right)
+            if speed.left != 0 and speed.right != 0:
+                self.lastSpeedCmd = (speed.left, speed.right)
 
             if speed.left == 0 or speed.right == 0:
                 self.pubSpeedArd.publish(Point(x=0, y=0))

@@ -51,7 +51,7 @@ class TravelData:
         diff.leftAcceleration = acc[0]
         diff.rightAcceleration = acc[1]
 
-        diff.direction = self.computeDirection(preData)
+        diff.direction = self.computeDirectionRotate(preData)
 
         return diff
 
@@ -61,7 +61,8 @@ class TravelData:
         
         return leftAcc, rightAcc 
 
-    def computeDirection(self, preData):
+    # Computes direction when vehicle is allowed to turn direction smoothly around a curve
+    def computeDirectionCurved(self, preData):
         if self.speedLeft[1] == 0 and self.speedRight[1] == 0:
             return Direction.Stationary
 
@@ -74,6 +75,25 @@ class TravelData:
 
             elif self.speedLeft[1] < self.speedRight[1]:
                 return Direction.Left
+
+        elif self.speedLeft[1] < 0 and self.speedRight[1] < 0:
+            return Direction.Backward
+
+        return None
+
+    # Computes direction when vehicle changes direction by rotating in its own axis
+    def computeDirectionRotate(self, preData):
+        if self.speedLeft[1] == 0 and self.speedRight[1] == 0:
+            return Direction.Stationary
+
+        elif self.speedLeft[1] > 0 and self.speedRight[1] > 0:
+            return Direction.Forward
+
+        elif self.speedLeft[1] > 0 and self.speedRight[1] < 0:
+            return Direction.Right
+
+        elif self.speedLeft[1] < 0  and self.speedRight[1] > 0:
+            return Direction.Left
 
         elif self.speedLeft[1] < 0 and self.speedRight[1] < 0:
             return Direction.Backward
@@ -123,11 +143,11 @@ class Prediction:
         xStep = math.sin(self.degToRad(self.heading)) * distance
         yStep = math.cos(self.degToRad(self.heading)) * distance
         
-        if self.rangeDis < 5:
-            xRange = math.sin(self.degToRad(self.heading)) * distance
-            yRange = math.cos(self.degToRad(self.heading)) * distance
+        # if self.rangeDis < 5:
+        #     xRange = math.sin(self.degToRad(self.heading)) * distance
+        #     yRange = math.cos(self.degToRad(self.heading)) * distance
 
-            return ((xSpeed, ySpeed), (xStep, yStep), (xRange, yRange))
+        #     return ((xSpeed, ySpeed), (xStep, yStep), (xRange, yRange))
 
         return ((xSpeed, ySpeed), (xStep, yStep), None)
 
@@ -168,17 +188,18 @@ class Localization:
         self.subSpeed = rospy.Subscriber('/pi/api/speed', Speed, self.speedCallback )
         self.subStep = rospy.Subscriber('/pi/api/step', Steps, self.stepsCallback )
 
-        self.recordData()
-        # dataRecording = threading.Thread(target=self.recordData)
-        # dataRecording.daemon = True
-        # dataRecording.start()
-        # dataRecording.join()
+        # self.recordData()
+        dataRecording = threading.Thread(target=self.recordData)
+        dataRecording.daemon = True
+        dataRecording.start()
+        dataRecording.join()
 
     def recordData(self):
         while True:
             # Record motion state of vehicle if its in motion
             if self.getCurTimeInMilliSecs() - self.inMotion < 200:
                 self.locationComputed = False
+                # print("REcord")
 
                 t = self.getCurTimeInMilliSecs()
                 tra = TravelData(t, self.getHeading(), self.getRange(), self.getSpeedLeft(), self.getSpeedRight(), self.getSteps(), self.getIMU())
@@ -189,6 +210,7 @@ class Localization:
             # Compute current location once the vehicle becomes stationary
             elif len(self.travelTrace) > 0 and self.locationComputed is False:
                 self.locationComputed = True
+                print("Estimate")
                 self.estimateLocation(self.lastKnownLocation.timestamp, self.inMotion)
 
                 # Store the current uninterrupted travel history in the archive
@@ -299,18 +321,26 @@ class Localization:
             x, y, x1, y1 = self.combineLoc(preds)
             stS = self.travelTrace.get(times[0]).steps
             stL = self.travelTrace.get(times[-1]).steps
+            headS = self.travelTrace.get(times[0]).heading
+            headL = self.travelTrace.get(times[-1]).heading
+            angle = headL - headS
+
             cir = 2*math.pi*self.wheelRadius
             d = ((((stL[0] - stS[0])/20.0)*cir) + (((stL[1] - stS[1])/20.0)*cir))/2.0
+            xStep = math.sin(self.degToRad(angle)) * d
+            yStep = math.cos(self.degToRad(angle)) * d
+
             # # d = (((stL[1] - stS[1]-20)/20.0)*0.207)
             print(stL[0]- stS[0], stL[1]- stS[1])
             print(x,y,x1,y1)
-            # print(self.getCurrentLoc(x, y))
-            # print("Here ",((float(t)/len(ts)) + y)/2, len(ts), startTime-endTime)
+            
+            # print("Distance Exact: ", d, ((stL[0] - stS[0]) + (stL[1] - stS[1]))/200.0, xStep, yStep)
+            print("Distance: ", d," Angle:", angle,"X:", xStep,"Y:", yStep)
+            if y1!=0:
+                self.updateCurrentLoc(x1, (abs(y1)/y1)*d,self.lastKnownLocation.heading+angle)
+            else:
+                self.updateCurrentLoc(x1, 0,self.lastKnownLocation.heading+angle)
 
-            # self.travelTrace = {}
-            # k = (stL[1] - stS[1])/20.0
-            print("Distance Exact: ", d, ((stL[0] - stS[0]) + (stL[1] - stS[1]))/200.0)
-            self.updateCurrentLoc(x1, (abs(y1)/y1)*d,0)
             print("Absolute Location: ",self.lastKnownLocation.x, self.lastKnownLocation.y)
             # sys.exit()
 

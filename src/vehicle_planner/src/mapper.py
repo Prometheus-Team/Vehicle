@@ -15,7 +15,7 @@ import numpy as np
 # from visualizeMap import MapViz
 
 class MapBuilder:
-    def __init__(self, width=200, height=200):
+    def __init__(self, width=1000, height=1000):
         self.cellWidth = 0.3
         self.cellHeight = 0.3
         self.map = None
@@ -47,7 +47,7 @@ class MapBuilder:
         self.getMapSrv = rospy.Service('/pi/mapper/getMap', GetMap, self.getMapHandler)
 
 
-        # self.initMap(self.width, self.height)
+        self.initMap(self.width, self.height)
 
     def initMap(self, x, y, layer=11):
         self.map = np.zeros((int(layer), int(x), int(y)))
@@ -115,8 +115,8 @@ class MapBuilder:
 
         if msg.last:
             self.scanCompleted = True
-            # self.pubMapViz.publish(self.convertMapToPoints())
-            # self.pubCurLocViz.publish()
+            self.pubMapViz.publish(self.convertMapToPoints())
+            self.pubCurLocViz.publish()
 
         self.lastScanTime = time.time()
 
@@ -129,10 +129,14 @@ class MapBuilder:
     def convertRangeToPoint(self, distance, angle):
         angleN = self.degToRad(angle)
 
-        if angleN > math.pi/2:
-            return round(-math.cos((math.pi) - angleN) * distance, 3), round(math.sin((math.pi)-angleN) * distance, 3)
+        pt = self.transform((distance,0), angleN)
+
+        return round(pt[0], 3), round(pt[1], 3)
+
+        # if angleN > math.pi/2:
+        #     return round(-math.cos((math.pi) - angleN) * distance, 3), round(math.sin((math.pi)-angleN) * distance, 3)
         
-        return round(math.cos(angleN) * distance, 3), round(math.sin(angleN) * distance, 3)
+        # return round(math.cos(angleN) * distance, 3), round(math.sin(angleN) * distance, 3)
 
     def convertPointToGrid(self, curLoc, point, heading=0):
         angleN = self.degToRad(heading)
@@ -142,9 +146,7 @@ class MapBuilder:
         return math.floor((self.width/2) + pt[0]), math.floor((self.height/2) + pt[1])
 
     def plotPointOnMap(self, point):
-        print(point)
         layer = self.map[10, int(point[1]), int(point[0])]
-        print(layer)
         if layer < 10:
             x = int(point[1])
             y = int(point[0])
@@ -172,13 +174,13 @@ class MapBuilder:
     # point - the point to be transformed
     # traVec - translation vector
     # rotAng - rotation angle to rotate the point around the z-axis
-    def transform(self, point, traVec, rotAng):
+    def transform(self, point, rotAng, traVec=(0,0)):
         point = (point[0], point[1], 0)
         traVec = (traVec[0], traVec[1], 0)
-        mt = tra.translation_matrix(np.multiply(traVec, 1))
-        mr = tra.rotation_matrix(rotAng, (0, 0, 1))
-        # mat = mt.dot(mr)    # rotate then translate
-        mat = mr.dot(mt)  # translate then rotate
+        mt = tra.translation_matrix(traVec)
+        mr = tra.rotation_matrix(rotAng, (0, 0, 1),(0,0,0))
+        mat = mt.dot(mr)    # rotate then translate
+        # mat = mr.dot(mt)  # translate then rotate
         point = [point[0], point[1], 0, 1]
 
         return tuple(mat.dot(point)[:2])
@@ -220,7 +222,7 @@ class MapBuilder:
     #     f = 0
     #     for l in firstLoc:
     #         curLocs.append(self.convertPointToGrid(l, l))
-    #         for i in range(0, 181, 3):
+    #         for i in range(0, 181, 2):
     #             if (i>=0 and i<=45) or (i>=135 and i<=180):
     #                 # x = random.randint(65,75)
     #                 x = random.randint(15,25)
@@ -228,27 +230,33 @@ class MapBuilder:
     #                 # continue
     #                 x = random.randint(30, 50)
 
-    #             # print(x, i)
-    #             if i>10 and i<170:
-    #                 for j in range(-10, 11):
-    #                     pt = self.convertPointToGrid(l, self.convertRangeToPoint(x, i+j), dirs[f])
-    #                     self.plotPointOnMap(pt)
-
+    #             if i >= 180:
+    #                 dis = Distance(i, x, True)
     #             else:
-    #                 pt = self.convertPointToGrid(l, self.convertRangeToPoint(x, i), dirs[f])
-    #                 self.plotPointOnMap(pt)
+    #                 dis = Distance(i, x, False)
+
+
+    #             # # print(x, i)
+    #             # if i>10 and i<170:
+    #             #     for j in range(-10, 11):
+    #             #         pt = self.convertPointToGrid(l, self.convertRangeToPoint(x, i+j), dirs[f])
+    #             #         self.plotPointOnMap(pt)
+
+    #             # else:
+    #             #     pt = self.convertPointToGrid(l, self.convertRangeToPoint(x, i), dirs[f])
+    #             #     self.plotPointOnMap(pt)
             
     #             # print(self.map[int(pt[1]), int(pt[0])])
     #         f += 1
     #     print(np.sum(self.getMap()))
     #     # while True:
     #     # pt = self.convertPointToGrid((0,0), (0,0))
-    #     self.viz.run(self.getMap(), curLocs)
+    #     # self.viz.run(self.getMap(), curLocs)
 
 
 def main():
     rospy.init_node("MapperNode")
-    MapBuilder(200,200)
+    MapBuilder(1000,1000)
     rospy.spin()
 
 if __name__=='__main__':

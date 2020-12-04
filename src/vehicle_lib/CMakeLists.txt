@@ -56,6 +56,7 @@ add_message_files(
   Location.msg
   Steps.msg
   IntArr.msg
+  Path.msg
 #   Message1.msg
 #   Message2.msg
 )
@@ -69,6 +70,8 @@ add_service_files(
   InitMap.srv
   ScanArea.srv
   GetShortestPath.srv
+  Goto.srv
+  Travel.srv
 #   Service1.srv
 #   Service2.srv
 )

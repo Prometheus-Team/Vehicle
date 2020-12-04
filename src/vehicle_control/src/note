@@ -1,3 +1,37 @@
 - areas should be initially unexplored, then become empty or wall later
 
 vehicle_lib/IntArr[] grid
+
+
+Protocols
+- Wait for rescue
+    - Vehicle broadcasts location and shutdown system waiting to be rescued
+- Return to base
+    - Vehicle returns to base
+
+Features to implement
+- Complete localization
+- Make system check before starting exploration
+    - Determine max speed
+    - Determine speed to PWM ratio
+
+- Validate inputs provided by user
+- Implement some fail safes
+    - If vehicle battery is not enough for expolration
+        - Notify user battery status and wait for approval to return to base
+        - If user declines and overrides warning to explore until battery is deplated
+            - If battery for the motors is completely depleted, enact 'Wait for rescue' protocol
+            - If battery lasts until end of expolration, enact 'Return to base' protocol
+
+    - If vehicle battery isn't enough for return, broadcast current location notifying battery is low and shutdown system
+    - If mapper isn't working, recommend return to base unless user takes manual control
+    - If path finder isn't working, recommend return to base unless user takes manual control
+    - If exploration isn't working, recommend return to base unless user takes manual control
+    - If steering isn't working, enact 'Wait for rescue' protocol
+
+    - If battery is depleted while returning to base, enact 'Wait for rescue' protocol
+- Add led lights to show the status of the vehicle
+    - Power on
+    - Ready and system online - properly started the system waiting for master connection
+    - Connected with master
+- Add power button

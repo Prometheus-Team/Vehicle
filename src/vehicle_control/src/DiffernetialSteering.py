@@ -3,6 +3,8 @@
 import rospy
 from vehicle_lib.msg import Location, Speed
 
+from time import sleep
+
 from math import atan, sin, cos, radians, pi
 from PIDParam import PIDParam 
 class DifferentialSteering():
@@ -33,13 +35,14 @@ class DifferentialSteering():
         self.wheelRadius=wheelRadius
 
         self.seqC = 0
-
+        self.arrived=False
+        self.time=0
         self.subSpeed = rospy.Subscriber('/pi/api/speed', Speed, self.speedCallback )
         self.subHeading = rospy.Subscriber('/pi/api/heading', Float32, self.headingCallback)
         self.pubCurLoc = rospy.Subscriber('/pi/localization/currentLoc', Location, self.curLocCallback)
 
         self.pubSpeed = rospy.Publisher('/pi/api/speedCmd', Speed, queue_size=10)
-
+        self.pidLoop()
 
     def speedCallback(self, msg):
         self.currentVelocity = [msg.right, msg.left]
@@ -66,12 +69,13 @@ class DifferentialSteering():
         pass
 
     def pidLoop(self):
-
-        while !arived:
-            self.getState()
-            if self.currentPosition=self.goalPosition:
-                return
-            if time%4==0:          
+        while not self.arrived:
+            if self.currentPosition==self.goalPosition:
+                outputVel=[0.0,0.0]
+                self.arrived=True
+                
+            self.sendSpeedCmd(outputVel[0],outputVel[1])
+            if self.time%4==0:          
                 positionError= self.goalPosition - self.currentPosition
                 self.posIntegError= self.posIntegError + positionError * self.timeDurationPos
 
@@ -116,9 +120,11 @@ class DifferentialSteering():
             
             self.prevErrorVel=velError
 
-            outPutRPM=outputVel/(2*math.pi* self.wheelRadius)
 
-            time+=1
+            self.time+=1
+            #outPutRPM=outputVel/(2*math.pi* self.wheelRadius)
+           self.sendSpeedCmd(outputVel[0],outputVel[1])
+
 
 
 def main():
@@ -140,6 +146,5 @@ if __name__=='__main__':
 
 
             
-
 
 
