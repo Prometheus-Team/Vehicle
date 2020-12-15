@@ -8,6 +8,7 @@ import numpy as np
 
 # import cPickle as pickle
 import pickle
+import hashlib
 
 class Boundary:
     def __init__(self, left, right, up, down):
@@ -93,6 +94,7 @@ class Master:
         self.frontDistance = 0
         self.curLoc = [time.time(), Location(0,0,0, None)]
         self.initLoc = [time.time(), Location(0, 0, 0, None)]
+        self.imageSha = 0
 
         # Services
         self.initBoundSrv = rospy.ServiceProxy('/pi/exploration/initBound', InitBound)
@@ -119,7 +121,24 @@ class Master:
 
         self.configSock()
         
+    def imageToSha1(self, URL="http://192.168.0.147:8000/stream.mjpg"):
+        inputStream = cv2.VideoCapture(URL)
 
+        while True:
+            _ret, image = inputStream.read()
+            if _ret == False:
+                break
+            self.imageSha = hashlib.sha1(image).hexdigest()
+
+    def startStreamingSensorData(self):
+        sense = threading.Thread(target=self.sendSensorData)
+        sense.start()
+        sense.join()
+
+        # todo: initialize this thread somewhere
+        cmd = threading.Thread(target=self.imageToSha1)
+        cmd.start()
+        cmd.join()
 
     def configSock(self):
         try:
@@ -244,12 +263,18 @@ class Master:
             
 
     def getSensorData(self):
+        URL = "http://192.168.0.147:8000/stream.mjpg"
+        inputStream = cv2.VideoCapture(URL)
+        _ret, image = inputStream.read()
+        imageHash = hashlib.sha1(image).hexdigest()
+
         return {
             'speed':[self.speed.left, self.speed.right],
             'heading':self.heading,
             'location':[self.curLoc[1].x, self.curLoc[1].y, self.heading],
             'frontDistance':self.frontDistance,
-            'batteryLevel':self.batteryLevel
+            'batteryLevel': self.batteryLevel,
+            'imageSha': imageHash
         }
 
     def config(self):
