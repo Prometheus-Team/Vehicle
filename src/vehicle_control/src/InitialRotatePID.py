@@ -13,7 +13,7 @@ import numpy
 import threading
 
 class Controller:
-    def __init__(self, PIDParamVel, PIDParamPos,PIDParamW, timeDurationVel = 0.1, timeDurationPos=0.3, ):
+    def __init__(self, PIDParamVel, PIDParamPos,PIDParamW, timeDurationVel = 0.1, timeDurationPos=0.3 ):
         self.currentPosition = numpy.array([0.0,0.0])
         self.goalPosition = numpy.array([0.0,0.0])
         self.goalThetha=atan(self.goalPosition[1]-self.currentPosition[1]/self.currentPosition[0]-self.currentPosition[0] )
@@ -23,7 +23,7 @@ class Controller:
         self.error = numpy.array([0.0,0.0]) #Current Iteration error
         self.oldError = numpy.array([0.0,0.0]) # Previous error
         self.timeDurationVel=timeDurationVel
-        self.timeDurationPos=0
+        self.timeDurationPos=timeDurationPos
         self.positionUpdated=False
 
 
@@ -41,7 +41,11 @@ class Controller:
         self.turnRadius=0.5
         self.lengthOfRobot=0.4
         self.wheelRadius=0.1
+        
         self.currentOrientation=0
+        self.relativeOrientation = 0
+        self.initialOrientation = None
+
         self.arrived=False
         self.time=0
         self.seqC = 0
@@ -62,6 +66,8 @@ class Controller:
 
     def headingCallback(self, msg):
         self.currentOrientation = msg.data
+        if self.initialOrientation:
+            self.relativeOrientation = self.initialOrientation - self.currentOrientation
 
     def curLocCallback(self, msg):
         self.currentPosition = numpy.array([msg.x, msg.y])
@@ -71,7 +77,10 @@ class Controller:
         self.pubSpeed.publish(s)
 
     def gotoService(self, msg):
-        self.clear(numpy.array(msg.end))
+        if self.initialOrientation is None:
+            self.initialOrientation = self.currentOrientation
+
+        self.clear(numpy.array([msg.end.x, msg.end.y]))
         return self.pidLoop()
 
     def getHeader(self):
@@ -90,7 +99,12 @@ class Controller:
 
     def clear(self,goalPosition):
         self.goalPosition=goalPosition
-        self.goalThetha=atan(self.goalPosition[1]-self.currentPosition[1]/self.currentPosition[0]-self.currentPosition[0] )
+        print(self.goalPosition)
+        print(self.currentPosition)
+        if self.goalPosition[0]-self.currentPosition[0]==0:
+            self.goalThetha=0
+        else:
+            self.goalThetha=atan(self.goalPosition[1]-self.currentPosition[1]/self.currentPosition[0]-self.currentPosition[0] )
         self.prevErrorPos=numpy.array([0.0,0.0])
         self.prevErrorVel= numpy.array([0.0,0.0])
         self.prevErrortheta=0.0
@@ -102,9 +116,9 @@ class Controller:
         self.rotationPhase=True
 
     def rotationPhasePID(self):
-        error=self.goalThetha-self.currentOrientation
+        error=self.goalThetha-self.relativeOrientation
         self.thetaIntegError= self.thetaIntegError + error * 0.1
-
+        print(self.relativeOrientation)
         thetaDerivative = (error- self.prevErrortheta)/0.4
 
         outputW= self.PIDParamW.proportional *error + self.PIDParamW.integral *self.thetaIntegError + thetaDerivative *self.PIDParamW.derivative
@@ -114,6 +128,9 @@ class Controller:
         
         self.leftWheelVelocityGoal= ( -1 * outputW * self.lengthOfRobot)/ (2*self.wheelRadius)
         
+        self.sendSpeedCmd(self.rightWheelVelocityGoal, self.leftWheelVelocityGoal)
+
+
     def positionPID(self):
         positionError= self.goalPosition - self.currentPosition
         self.posIntegError= self.posIntegError + positionError * self.timeDurationPos
@@ -151,14 +168,16 @@ class Controller:
     def pidLoop(self):
 
         while not self.arrived:
-            if self.currentPosition==self.goalPosition:
+            if self.currentPosition[0]==self.goalPosition[0] and self.currentPosition[1]==self.goalPosition[1]:
                 outputVel=[0.0,0.0]
                 self.arrived=True
                 self.sendSpeedCmd(outputVel[0],outputVel[1])
-
+                print(self.currentPosition)
                 return True
 
             if self.rotationPhase==True:
+                print("Here",self.relativeOrientation, self.goalThetha)
+                # return
                 if self.currentOrientation==self.goalThetha:
                     self.rotationPhase=False
                     continue

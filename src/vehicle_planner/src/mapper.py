@@ -102,14 +102,14 @@ class MapBuilder:
 
     def scanCallback(self, msg):
         self.scanCompleted = False
-        curLocs = [(0, 0), (500,300), (-400,800),(-300,-600),(400,-600)]
-        curLoc = curLocs[self.curLocC%5]
-        dirs = [0, 30, 45, -60, -120]
-        dir = dirs[self.curLocC%5]
-        dests = [(200,350),(200,350),(200,350),(200,350),(200,350)]
-        dest = dests[self.curLocC%5]
-        # curLoc = self.curLoc
-        # dir = self.heading
+        # curLocs = [(0, 0), (500,300), (-400,800),(-300,-600),(400,-600)]
+        # curLoc = curLocs[self.curLocC%5]
+        # dirs = [0, 30, 45, -60, -120]
+        # dir = dirs[self.curLocC%5]
+        # dests = [(200,350),(200,350),(200,350),(200,350),(200,350)]
+        # dest = dests[self.curLocC%5]
+        curLoc = self.curLoc
+        dir = self.heading
         i = 180-msg.angle
 
         if msg.distance <= self.maxCorrectDistance:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import rospy, math
+import rospy, math, heapq
 import numpy as np
 
 from vehicle_lib.srv import GetShortestPath, GetShortestPathResponse
@@ -32,14 +32,14 @@ class Travel:
         self.map = np.array([list(i.pts) for i in grid])
         print("Map total score: ",np.sum(self.map))
         # self.map = grid
-        p = self.getShortestPath((start.x, start.y), (end.x, end.y))
+        p = self.getShortestPath1((start.x, start.y), (end.x, end.y))
 
-        if p:
+        if p and len(p)>0:
             path = self.getPathToFollow((start.x, start.y), p)
             path.reverse()
 
-            pathN = self.simplifyPath(path)
-            # pathN = path
+            # pathN = self.simplifyPath(path)
+            pathN = path
             # print(pathN)
             # print(len(pathN))
             # print(len(path))
@@ -51,6 +51,89 @@ class Travel:
             return []
 
         return GetShortestPathResponse([])
+
+    def heuristic(self, a, b):
+        return np.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
+
+    def getShortestPath(self, start, goal):
+        array = self.map
+        neighbors = [(0,1),(0,-1),(1,0),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)]
+
+        close_set = set()
+
+        came_from = {}
+
+        gscore = {start:0}
+
+        fscore = {start:self.heuristic(start, goal)}
+
+        oheap = []
+
+        heapq.heappush(oheap, (fscore[start], start))
+    
+
+        while oheap:
+
+            current = heapq.heappop(oheap)[1]
+
+            if current == goal:
+
+                data = []
+
+                while current in came_from:
+
+                    data.append(current)
+
+                    current = came_from[current]
+
+                return data
+
+            close_set.add(current)
+
+            for i, j in neighbors:
+
+                neighbor = current[0] + i, current[1] + j
+
+                tentative_g_score = gscore[current] + self.heuristic(current, neighbor)
+
+                if 0 <= neighbor[0] < array.shape[0]:
+
+                    if 0 <= neighbor[1] < array.shape[1]:                
+
+                        if array[neighbor[0]][neighbor[1]] == 1:
+
+                            continue
+
+                    else:
+
+                        # array bound y walls
+
+                        continue
+
+                else:
+
+                    # array bound x walls
+
+                    continue
+    
+
+                if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, 0):
+
+                    continue
+    
+
+                if  tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1]for i in oheap]:
+
+                    came_from[neighbor] = current
+
+                    gscore[neighbor] = tentative_g_score
+
+                    fscore[neighbor] = tentative_g_score + self.heuristic(neighbor, goal)
+
+                    heapq.heappush(oheap, (fscore[neighbor], neighbor))
+    
+        return False
+
 
     def randomMap(self):
         x = np.random.rand(1000,1000)
@@ -109,7 +192,8 @@ class Travel:
             # costG = self.edgeCost[edge]
             node = edge[1]
             # cost = self.hx(node, end) + costG
-            cost = self.hx1(node, start, end)
+            # cost = self.hx1(node, start, end)
+            cost = self.hx(node, end)
             if cost < minCost:
                 minCost = cost
                 next = edge
@@ -142,7 +226,7 @@ class Travel:
         return None
 
     # ngraphsearch
-    def getShortestPath(self, start, end):
+    def getShortestPath2(self, start, end):
         self.edges[("Start", start)] = 0
         self.edgeCost[("Start", start)] = 0
         self.edgesIndex[0] = ("Start", start)

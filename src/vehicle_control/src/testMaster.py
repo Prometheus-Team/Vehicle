@@ -6,7 +6,7 @@ import pickle
 def cmdSend():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(('127.0.0.1', 8000))
+        s.connect(('192.168.137.1', 9999))
 
         # s.bind(('192.168.0.103',5555))
     except:
@@ -35,9 +35,10 @@ def cmdSend():
         #     'cmd':'manualControlChange',
         #     'args':True
         # }
-        s.sendall(pickle.dumps(x))
+        # s.sendall(pickle.dumps(x))
         # break
-        r = s.recv(1024)
+        # r = s.recv(1024)
+        r = s.recv(62556)
         if r is not None:
             print(pickle.loads(r))
         break

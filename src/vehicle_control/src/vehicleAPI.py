@@ -11,7 +11,7 @@ import pyrr, urllib, json, time, math, threading
 
 
 class VehicleAPI:
-    URL = "http://192.168.0.103:8080/sensors.json"
+    URL = "http://192.168.0.101:8080/sensors.json"
     def __init__(self):
         self.seqC = 0       # sequence number for the streamed values
         self.defaultScannerStep = 2 # 2 degrees rotated on every step
@@ -32,6 +32,7 @@ class VehicleAPI:
         self.lastSpeedLeft = self.lastSpeedRight = 0
 
         head = threading.Thread(target=self.readOrientation)
+        head.setDaemon(True)
         # self.rate = rospy.Rate(1)
 
         self.pubSpeedArd = rospy.Publisher('/arduino/speedCmd', Point, queue_size=10)
@@ -66,10 +67,14 @@ class VehicleAPI:
         pass
 
     def convertSpeedToPWM(self, speed):
-        return speed * self.speedToPWMRatio
+        pwm = speed * self.speedToPWMRatio
+        if abs(pwm) > 255:
+            return 255 * pwm/abs(pwm)
 
-    def calculateBatteryLevel(self, speed):
-        return 0
+        elif abs(pwm) < 60 and pwm!=0:
+            return 60 * pwm/abs(pwm)
+
+        return pwm
 
     # Speed left and right should be in PWM
     def speedCmd(self, speed):
@@ -123,14 +128,20 @@ class VehicleAPI:
 
     def readOrientation(self):
         while True:
-            response = urllib.urlopen(self.URL)
-            data=json.loads(response.read())
-            i=data['rot_vector']['data'][-1]
-            currentQuaternion=pyrr.quaternion.create(i[1][0],i[1][1],i[1][2],i[1][3])
-            # self.heading = tf.transformations.euler_from_quaternion([i[1][0],i[1][1],i[1][2],i[1][3]])[2]*180/math.pi
-            self.heading = Quaternion(currentQuaternion).to_euler123()[0]*180/math.pi
-            print(self.heading)
-            self.pubHeading.publish(self.heading)
+            try:
+                response = urllib.urlopen(self.URL)
+                data=json.loads(response.read())
+                i=data['rot_vector']['data'][-1]
+                currentQuaternion=pyrr.quaternion.create(i[1][0],i[1][1],i[1][2],i[1][3])
+                # self.heading = tf.transformations.euler_from_quaternion([i[1][0],i[1][1],i[1][2],i[1][3]])[2]*180/math.pi
+                self.heading = Quaternion(currentQuaternion).to_euler123()[0]*180/math.pi
+                print(self.heading)
+                self.pubHeading.publish(self.heading)
+
+            except Exception as e:
+                print(e)
+                print("Unable to connect to orientation sensor")
+                continue
 
     def computeSpeedToPWMRatio(self, pwm, speed):
         return pwm/speed

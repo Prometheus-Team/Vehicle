@@ -13,7 +13,7 @@ import turtle
 class ManualControl:
     def __init__(self):
         self.seqC = 0
-        self.constSpeed = 2
+        self.constSpeed = 1.5
         self.up = self.down = self.left = self.right = False
         
         self.pubSpeed = rospy.Publisher('/pi/api/speedCmd', Speed, queue_size=10)
@@ -23,6 +23,7 @@ class ManualControl:
 
 
         with Listener(on_press=self.onPress, on_release=self.onRelease) as listener:
+            # listener.setDaemon(True)
             listener.join()
 
     # steer the vehicle with given angle in the given direction

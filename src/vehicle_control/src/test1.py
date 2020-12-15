@@ -154,17 +154,17 @@ def main():
 
 
 from vehicle_lib.msg import Distance, Location
-from vehicle_lib.srv import GetShortestPath, GetMap
+from vehicle_lib.srv import GetShortestPath, GetMap, Explore, InitBound
 from nav_msgs.msg import GridCells
 from geometry_msgs.msg import Point
 import numpy as np
 import sys
 # Test mapper
 
-c = getShortestPathSrv = getMapSrv = pubPathViz = None
+c = getShortestPathSrv = getMapSrv = pubPathViz = getNextDestSrv = initBoundSrv= None
 
 def streamScanResult():
-    global c, getShortestPathSrv, getMapSrv, pubPathViz
+    global c, getShortestPathSrv, getMapSrv, pubPathViz, getNextDestSrv
     for i in range(0, 181, 2):
         if (i>=0 and i<=45) or (i>=135 and i<=180):
             # x = random.randint(65,75)
@@ -178,18 +178,23 @@ def streamScanResult():
         else:
             dis = Distance(i, x, False, None)
 
-        # c.publish(dis)
+        c.publish(dis)
 
         if i >= 180:
-            map = getMapSrv(True).map
+            r = initBoundSrv(1000,1000,500,500,500,500, 0)
+
+            grid = getMapSrv(True).map
             # print(map)
             t0 = time.time()
-            gridPath = getShortestPathSrv(map, Location(500,500, 0, None), Location(900,550, 0, None)).path
-            print(gridPath)
+            gridPath = getNextDestSrv(grid, 500, 500).nextPoint 
+
+            # gridPath = getShortestPathSrv(map, Location(500,500, 0, None), Location(900,550, 0, None)).path
+            # print(gridPath)
             if gridPath:
                 print("Path found=========================================")
                 print(time.time()-t0)
-                p = convertCurLocToPoint(gridPath)
+                print(gridPath)
+                p = convertCurLocToPoint([gridPath])
                 # print(p)
                 pubPathViz.publish(p)
                 sys.exit()
@@ -217,7 +222,7 @@ def convertCurLocToPoint(curLocs):
     return points
 
 def main1():
-    global c, getShortestPathSrv, getMapSrv, pubPathViz
+    global c, getShortestPathSrv, getMapSrv, pubPathViz, getNextDestSrv, initBoundSrv
     rospy.init_node("TestNode")
     
     # tPre = time.time()
@@ -225,6 +230,8 @@ def main1():
     c = rospy.Publisher('/pi/api/range', Distance, queue_size=10)
     getShortestPathSrv = rospy.ServiceProxy('/pi/travel/getShortestPath', GetShortestPath)
     getMapSrv = rospy.ServiceProxy('/pi/mapper/getMap', GetMap)
+    initBoundSrv = rospy.ServiceProxy('/pi/exploration/initBound', InitBound)
+    getNextDestSrv = rospy.ServiceProxy('/pi/exploration/nextDestination', Explore)
     pubPathViz = rospy.Publisher('/viz/path', GridCells, queue_size=10)
     
     # a.start()

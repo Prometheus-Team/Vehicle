@@ -5,7 +5,7 @@ from util import Directions, Point
 from nextDestination import NextDestination
 import rospy
 from vehicle_lib.srv import Explore, InitBound
-from vehicle_lib.msg import IntArr
+from vehicle_lib.msg import IntArr, Location
 
 class Exploration:
     OPEN = 0
@@ -18,6 +18,10 @@ class Exploration:
     EAST = "EAST"
 
     BUFFER_SIZE = 3
+
+    numberOfSteps = 0
+
+    visitedMap = []
 
     # todo: is this not important?
     visitedStack = []
@@ -55,8 +59,13 @@ class Exploration:
             m.append(list(i.pts))
 
         m = np.array(m)
-        return self.getNextStep(updatedMap=m, currentPosition=(req.x, req.y))
+        ret = self.getNextStep(updatedMap=m, currentPosition=(req.y, req.x))
         
+        if ret and len(ret) > 1:
+            return Location(ret[0], ret[1], 0, None)
+
+        return None
+
     def initConfig(self, mapShape, bounds):
         # self.board = areaMap
         # loop through the board
@@ -90,15 +99,18 @@ class Exploration:
         self.stepPriority = robotPositionState.generateStepPriority()
 
     def canGoTo(self, position):
-        print(position)
-        # print(self.board[0][0])
-        canGoTo = (
-            self.board[position[0], position[1]] == self.OPEN
-            and self.board[position[0], position[1]] != self.BUFFER
-            and self.visitedMap[position[0], position[1]] != self.VISITED
-        )
+        try:
+            canGoTo = (
+                self.board[position] == self.OPEN
+                and self.board[position] != self.BUFFER
+                and self.visitedMap[position] != self.VISITED
+            )
+            return canGoTo
 
-        return canGoTo
+        except IndexError:
+            return None
+
+
 
     def getOpenDirections(self, currentPosition):
         currentRow = currentPosition[0]
@@ -154,7 +166,7 @@ class Exploration:
     def updateVisitedMap(self, currentPosition, direction):
         self.visitedMap[currentPosition[0], currentPosition[1]] = self.VISITED
 
-        VISITING_RANGE = 1
+        VISITING_RANGE = 100
         # VISITING_RANGE = 4
         if direction == "NORTH" or direction == "SOUTH":
             # if facing NORTH or SOUTH, mark adjacent (EAST and WEST) positions inside the VISION_RANGE as VISITED
@@ -257,14 +269,72 @@ class Exploration:
                 except IndexError:
                     break
 
+    def continueCoverage(self):
+        breakMapInto = 10
+
+        rowSize = self.visitedMap.shape[0] / breakMapInto
+        columnSize = self.visitedMap.shape[1] / breakMapInto
+
+        # 200 for e.g.
+        totalNumberOfPositions = rowSize * columnSize
+
+        # 15% of the positions under inspection
+        THRESHOLD = 0.15 * totalNumberOfPositions
+
+        # todo: use step priority to check row or column first?
+
+        for i in range(breakMapInto):
+            for j in range(breakMapInto):
+
+                rowStart = int(i * rowSize)
+                rowEnd = int((i + 1) * rowSize)
+                columnStart = int(j * columnSize)
+                columnEnd = int((j + 1) * columnSize)
+
+                wallPositions = np.where(
+                    self.visitedMap[rowStart:rowEnd, columnStart:columnEnd] == self.WALL
+                )
+                bufferPositions = np.where(
+                    self.visitedMap[rowStart:rowEnd, columnStart:columnEnd]
+                    == self.BUFFER
+                )
+                visitedPositions = np.where(
+                    self.visitedMap[rowStart:rowEnd, columnStart:columnEnd]
+                    == self.VISITED
+                )
+
+                exploredPositions = (
+                    len(wallPositions[0])
+                    + len(bufferPositions[0])
+                    + len(visitedPositions[0])
+                )
+
+                # open and yet unseen Positions
+                unexploredPositions = totalNumberOfPositions - exploredPositions
+
+                if unexploredPositions >= THRESHOLD:
+                    # The area is considered undiscovered
+                    return True
+
+        return False
+
     # Tuple with 2 elements
     # (X, Y) - where X is the row index
     #       - where Y is the column index
     def getNextStep(self, updatedMap, currentPosition):
+        if len(currentPosition) == 0:
+            return []
+
         self.board = updatedMap
-        unexploredPositions = np.where(self.visitedMap == self.OPEN)
-        if len(unexploredPositions[0]) == 0 and len(unexploredPositions[0]) == 0:
-            return IntArr([])
+
+        self.numberOfSteps += 1
+
+        # Perform a check every 6 steps
+        if self.numberOfSteps > 15 and self.numberOfSteps % 6 == 0:
+            # stop coverage?
+            if self.continueCoverage() == False:
+                return []
+
         openDirections = self.getOpenDirections(currentPosition)
 
         if len(openDirections) > 1:
@@ -300,8 +370,8 @@ class Exploration:
                     self.updateVisitedMap(newPoint, direction)
                     currentPosition = newPoint
                 else:
-                    print(newPoint)
-                    return IntArr(newPoint)
+                    # print(newPoint)
+                    return newPoint
 
         else:
             # backtracking
@@ -309,10 +379,10 @@ class Exploration:
             if len(self.branchingStack) > 0:
                 returnPoint = self.branchingStack.pop()
                 print(returnPoint)
-                return IntArr(returnPoint)
+                return returnPoint
             else:
                 # print("no more moves")
-                return IntArr([])
+                return []
 
         # (x,y)
 

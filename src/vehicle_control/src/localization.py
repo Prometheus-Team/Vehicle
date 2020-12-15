@@ -113,6 +113,12 @@ class LastLocation:
         self.heading = heading
         self.timestamp = timestamp
 
+    def reset(self, timestamp):
+        self.x = 0
+        self.y = 0
+        self.heading = 0
+        self.timestamp = timestamp
+
     def getLoc(self):
         return Location(self.x, self.y, self.heading, None)
 
@@ -163,6 +169,7 @@ class Localization:
         self.headingDiffTolerance = 2   # in angles
 
         self.lastKnownLocation = LastLocation(0,0,0,self.getCurTimeInMilliSecs())
+        self.lastKnownLocationReseted = False
         self.inMotion = 0
         self.locationComputed = False
 
@@ -185,9 +192,8 @@ class Localization:
 
         # self.recordData()
         dataRecording = threading.Thread(target=self.recordData)
-        dataRecording.daemon = True
+        dataRecording.setDaemon(True)
         dataRecording.start()
-        dataRecording.join()
 
     def recordData(self):
         locationComputedTime = time.time()
@@ -321,7 +327,7 @@ class Localization:
         # print(len(preds), len(times))
         print(startTime, endTime)
         if len(preds) > 0:
-            x1, y1 = self.combineLoc(preds)
+            # x1, y1 = self.combineLoc(preds)
 
             stS = self.travelTrace.get(times[0]).steps
             stL = self.travelTrace.get(times[-1]).steps
@@ -375,10 +381,41 @@ class Localization:
         return xSt, ySt
 
     def updateCurrentLoc(self, x, y, heading):
-        self.lastKnownLocation.updateLoc(x, y, heading, self.inMotion)
+        if not self.lastKnownLocationReseted:
+            self.lastKnownLocation.reset(self.getCurTimeInMilliSecs())
+            self.lastKnownLocationReseted = True
+        else:
+            direc = self.computeDirectionRotate()
+            if direc and direc == Direction.Left or direc == Direction.Right:
+                self.lastKnownLocation.updateLoc(0, 0, heading, self.inMotion)
+            
+            elif direc and direc == Direction.Backward:
+                self.lastKnownLocation.updateLoc(-x, -y, heading, self.inMotion)
+
+            else:
+                self.lastKnownLocation.updateLoc(x, y, heading, self.inMotion)
 
         # Publish updated location to current location topic
         self.pubCurLoc.publish(self.lastKnownLocation.getLoc())
+
+    # Computes direction when vehicle changes direction by rotating in its own axis
+    def computeDirectionRotate(self):
+        if self.speedLeft[1] == 0 and self.speedRight[1] == 0:
+            return Direction.Stationary
+
+        elif self.speedLeft[1] > 0 and self.speedRight[1] > 0:
+            return Direction.Forward
+
+        elif self.speedLeft[1] > 0 and self.speedRight[1] < 0:
+            return Direction.Right
+
+        elif self.speedLeft[1] < 0  and self.speedRight[1] > 0:
+            return Direction.Left
+
+        elif self.speedLeft[1] < 0 and self.speedRight[1] < 0:
+            return Direction.Backward
+
+        return None
 
     def computeDistanceFromAccel(self, vi, acc, t):
         return vi * t + (0.5 * acc * t**2)
