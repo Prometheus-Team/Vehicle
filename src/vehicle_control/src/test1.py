@@ -106,6 +106,13 @@ xs = []
 tPre = 0
 
 def speedCallback(msg):
+    global xs, ysL, ysR
+    if len(xs)> 150:
+        xs.pop(0)
+        ysL.pop(0)
+        ysR.pop(0)
+    
+
     ysL.append(float(msg.left))
     ysR.append(float(msg.right))
     xs.append(time.time())
@@ -135,7 +142,7 @@ def main():
     rospy.spin()
 
 
-main()
+# main()
 # if __name__=='__main__':
 #     main()
 
@@ -146,14 +153,18 @@ main()
 
 
 
-from vehicle_lib.msg import Distance
-
+from vehicle_lib.msg import Distance, Location
+from vehicle_lib.srv import GetShortestPath, GetMap
+from nav_msgs.msg import GridCells
+from geometry_msgs.msg import Point
+import numpy as np
+import sys
 # Test mapper
 
-c = None
+c = getShortestPathSrv = getMapSrv = pubPathViz = None
 
 def streamScanResult():
-    global c
+    global c, getShortestPathSrv, getMapSrv, pubPathViz
     for i in range(0, 181, 2):
         if (i>=0 and i<=45) or (i>=135 and i<=180):
             # x = random.randint(65,75)
@@ -167,31 +178,84 @@ def streamScanResult():
         else:
             dis = Distance(i, x, False, None)
 
-        c.publish(dis)
+        # c.publish(dis)
+
+        if i >= 180:
+            map = getMapSrv(True).map
+            # print(map)
+            t0 = time.time()
+            gridPath = getShortestPathSrv(map, Location(500,500, 0, None), Location(900,550, 0, None)).path
+            print(gridPath)
+            if gridPath:
+                print("Path found=========================================")
+                print(time.time()-t0)
+                p = convertCurLocToPoint(gridPath)
+                # print(p)
+                pubPathViz.publish(p)
+                sys.exit()
+
+            # dis = Distance(i, x, True, None)
         # time.sleep(0.1)
 
-def main():
-    global c
+def convertCurLocToPoint(curLocs):
+    cellWidth = cellHeight=0.3
+    points = GridCells()        
+    pts = 0
+    points.header.frame_id = "/my_frame"
+    points.header.stamp = rospy.Time.now()
+    points.cell_height = cellHeight
+    points.cell_width = cellWidth
+
+    for loc in curLocs:
+        pts += 1
+        m = Point()
+        m.x = loc.x * cellWidth
+        m.y = loc.y * cellHeight
+
+        points.cells.append(m)
+
+    return points
+
+def main1():
+    global c, getShortestPathSrv, getMapSrv, pubPathViz
     rospy.init_node("TestNode")
     
     # tPre = time.time()
     # a = threading.Thread(target=animAll)
     c = rospy.Publisher('/pi/api/range', Distance, queue_size=10)
+    getShortestPathSrv = rospy.ServiceProxy('/pi/travel/getShortestPath', GetShortestPath)
+    getMapSrv = rospy.ServiceProxy('/pi/mapper/getMap', GetMap)
+    pubPathViz = rospy.Publisher('/viz/path', GridCells, queue_size=10)
+    
     # a.start()
     # animAll()
     while not rospy.is_shutdown():
         streamScanResult()
-        time.sleep(3)
+        time.sleep(2)
     # rospy.spin()
 
 
-# main()
+main1()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 from tf import transformations as tra
 import numpy as np
 import math
 
 import pyrr
+
 # point - the point to be transformed
 # traVec - translation vector
 # rotAng - rotation angle to rotate the point around the z-axis
@@ -199,9 +263,7 @@ def transform(point, rotAng, traVec):
     point = (point[0], point[1], 0)
     traVec = (traVec[0], traVec[1], 0)
 
-    mt = tra.translation_matrix(traVec)
-    mr = tra.rotation_matrix(rotAng* math.pi/180, (0, 0, 1), (0,0,0))
-    mat = mt.dot(mr)    # rotate then translate
+    mat = transRotMat(traVec, rotAng)
 
     point = [point[0], point[1], 0, 1]
 
@@ -225,6 +287,43 @@ def transformFromYAxis(distance, rotAng, traVec=(0,0)):
     rot = p.dot(point)
     return rot+traVec
 
+vehicleLoc = (12, 6, 0)
+vehicleHeading = 30
+rangeAng = (2.5, 30)
+
+# Positive angle rotates clockwise and -ve counterclockwise
+def transRotMat(traVec, angle):
+    mt = tra.translation_matrix(traVec)
+    mr = tra.rotation_matrix(angle* math.pi/180, (0, 0, 1))
+    # mr = pyrr.Matrix44.from_z_rotation(math.radians(angle))
+
+    mat = mt.dot(mr)    # rotate then translate
+
+    return mat
+
+
+def transform2():
+    point = (1,1)
+    # mat = transRotMat(vehicleLoc, vehicleHeading)
+    mat = transRotMat((0,0,0), 60)
+    # print(mat)
+
+    point = [point[0], point[1], 0, 1]
+
+    a = tuple(mat.dot(point)[:2])
+    return round(a[0], 2), round(a[1], 2)
+
+def matrixT(vector):
+  return pyrr.Matrix44.from_translation(vector)
+  
+def matrixR(angles):
+  angles = np.radians(angles)
+  return pyrr.Matrix44.from_x_rotation(angles[0]) * pyrr.Matrix44.from_y_rotation(angles[1]) * pyrr.Matrix44.from_z_rotation(angles[2])
+
+def matrixTR(vector, angles):
+  return matrixT(vector) * matrixR(angles)
+
 # (transformFromXAxis(3,(2,0), 30))
 # print(transformFromYAxis(3, 30, (2,0)))
 # print(transform((1,0),110, (0,0)))
+# print(transform2())

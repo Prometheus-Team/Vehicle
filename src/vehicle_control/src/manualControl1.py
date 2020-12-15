@@ -19,11 +19,24 @@ class ManualControl:
         self.pubSpeed = rospy.Publisher('/pi/api/speedCmd', Speed, queue_size=10)
         
         # 0 - stop      1 - forward    2 - backward     3 - left        4 - right
-        self.subManual = rospy.Subscriber('/pi/api/manual', Int16, queue_size=10)   
+        self.subManual = rospy.Subscriber('/pi/api/manual', Int16, self.manualListener)   
 
+    def manualListener(self, msg):
+        if msg.data == 0:
+            self.driveStraight(0, "Forward")
 
-        with Listener(on_press=self.onPress, on_release=self.onRelease) as listener:
-            listener.join()
+        elif msg.data == 1:
+            self.driveStraight(self.constSpeed, "Forward")
+
+        elif msg.data == 2:
+            self.driveStraight(self.constSpeed, "Backward")
+
+        elif msg.data == 3:
+            self.turn("Left")
+
+        elif msg.data == 4:
+            self.turn("Right")
+
 
     # steer the vehicle with given angle in the given direction
     def turn(self, direction):
@@ -48,59 +61,9 @@ class ManualControl:
             speedLeft *= -1
             speedRight *= -1
 
-        elif direction == 'Left':
-            speedRight *= 1.1
-
-        elif direction == 'Right':
-            speedLeft *= 1.1
-
         s = Speed(left=speedLeft, right=speedRight, header=self.getHeader())
         print("Called straight drive")
         self.pubSpeed.publish(s)
-
-    def onPress(self, key):
-        # if self.up or self.down or self.left or self.right:
-        #     return
-
-        if key == Key.up and not self.up:
-            self.up = True
-            self.driveStraight(self.constSpeed, "Forward")
-            time.sleep(0.05)
-            self.driveStraight(self.constSpeed, "Forward")
-            # time.sleep(0.5)
-
-        elif key == Key.down and not self.down:
-            self.down = True
-            self.driveStraight(self.constSpeed, "Backward")
-            time.sleep(0.05)
-            self.driveStraight(self.constSpeed, "Backward")
-            # time.sleep(0.5)
-
-            
-        elif key == Key.left and not self.left:
-            self.left = True
-            self.turn("Left")
-            # time.sleep(0.5)
-
-            
-        elif key == Key.right and not self.right:
-            self.right = True
-            self.turn("Right")
-            # time.sleep(0.5)
-
-
-    def onRelease(self, key):
-        if key == Key.up or key == Key.down:
-            self.up = False
-            self.down = False
-            self.driveStraight(0, "Forward")
-            print("Not driving")
-
-        elif key == Key.left or key == Key.right:
-            self.left = False
-            self.right = False
-            self.turn("No")
-            print('Not turnning')
 
     def getHeader(self):
         self.seqC += 1

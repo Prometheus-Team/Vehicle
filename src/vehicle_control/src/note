@@ -35,3 +35,59 @@ Features to implement
     - Ready and system online - properly started the system waiting for master connection
     - Connected with master
 - Add power button
+
+
+
+Tasks
+- Fix mapper
+    - Transformation from range scan to world coordinate *
+    - Transformation from coordinate to grid *
+- Fix path finder
+    - not recognizing walls
+- Finish localization
+    - Transformation
+    - Calculate every few microseconds
+    - Others
+- Integrate everything
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Done
+- Localization works
+- Mapper works
+
+- Launch vehicle - startMapping
+- Manual control
+- Check vehicle battery
+
+
+
+Tasks
+- connect GUI with master with socket
+- some important unit tests
+
+

@@ -11,7 +11,7 @@ import pyrr, urllib, json, time, math, threading
 
 
 class VehicleAPI:
-    URL = "http://192.168.0.101:8080/sensors.json"
+    URL = "http://192.168.0.103:8080/sensors.json"
     def __init__(self):
         self.seqC = 0       # sequence number for the streamed values
         self.defaultScannerStep = 2 # 2 degrees rotated on every step
@@ -24,8 +24,8 @@ class VehicleAPI:
         self.speedLeft = self.speedRight = self.stepLeft = self.stepRight = self.heading = 0
         self.timeLeft = self.timeRight = 0
         self.totLeftStep = self.totRightStep = 0
-        self.curFactor = 0.2
-        self.preFactor = 0.8
+        self.curFactor = 0.3
+        self.preFactor = 0.7
         self.inMotion = time.time()
 
         self.lastStepLeft = self.lastStepRight = (0,0)
@@ -55,7 +55,7 @@ class VehicleAPI:
         self.scanAreaSrv = rospy.Service('/pi/api/scanCmd', ScanArea, self.scanAreaCmd)
         self.subSpeed = rospy.Subscriber('/pi/api/speedCmd', Speed, self.speedCmd)
         # ==================================================
-
+ 
         head.start()
         # self.readOrientation()
 
@@ -67,6 +67,9 @@ class VehicleAPI:
 
     def convertSpeedToPWM(self, speed):
         return speed * self.speedToPWMRatio
+
+    def calculateBatteryLevel(self, speed):
+        return 0
 
     # Speed left and right should be in PWM
     def speedCmd(self, speed):
@@ -104,7 +107,7 @@ class VehicleAPI:
 
         else:
             self.speedLeft = self.preFactor * self.speedLeft + self.curFactor * left
-            self.speedRight = self.preFactor * self.speedRight + self.curFactor * left
+            self.speedRight = self.preFactor * self.speedRight + self.curFactor * right
 
         self.pubSpeed.publish(Speed(self.speedLeft, self.speedRight, None, self.lastSpeedCmd[0], self.lastSpeedCmd[1]))
         self.inMotion = time.time()

@@ -8,8 +8,7 @@ from quaternion import Quaternion
 import pyrr, urllib, json, time, math, threading
 
 import numpy as np
-import enum
-import pickle
+import enum, pickle, math
 
 class Direction(enum.Enum):
     Stationary = 0
@@ -47,9 +46,9 @@ class TravelData:
         # diff.range = self.range - preData.range        
         diff.steps = (self.steps[0]-preData.steps[0], self.steps[1]-preData.steps[1])
 
-        acc = self.computeAccelration(preData)
-        diff.leftAcceleration = acc[0]
-        diff.rightAcceleration = acc[1]
+        # acc = self.computeAccelration(preData)
+        # diff.leftAcceleration = acc[0]
+        # diff.rightAcceleration = acc[1]
 
         diff.direction = self.computeDirectionRotate(preData)
 
@@ -137,25 +136,21 @@ class Prediction:
         return avg
 
     def getCoord(self, distance):
-        xSpeed = math.sin(self.degToRad(self.heading)) * distance
-        ySpeed = math.cos(self.degToRad(self.heading)) * distance
+        # xSpeed = math.sin(math.radians(self.heading)) * distance
+        # ySpeed = math.cos(math.radians(self.heading)) * distance
 
-        xStep = math.sin(self.degToRad(self.heading)) * distance
-        yStep = math.cos(self.degToRad(self.heading)) * distance
+        x = math.sin(math.radians(self.heading)) * distance
+        y = math.cos(math.radians(self.heading)) * distance
         
         # if self.rangeDis < 5:
-        #     xRange = math.sin(self.degToRad(self.heading)) * distance
-        #     yRange = math.cos(self.degToRad(self.heading)) * distance
+        #     xRange = math.sin(math.radians(self.heading)) * distance
+        #     yRange = math.cos(math.radians(self.heading)) * distance
 
         #     return ((xSpeed, ySpeed), (xStep, yStep), (xRange, yRange))
 
-        return ((xSpeed, ySpeed), (xStep, yStep), None)
+        # return ((xSpeed, ySpeed), (xStep, yStep), None)
+        return x, y
 
-    def degToRad(self, ang):
-        return ang * math.pi / 180
-
-    def radToDeg(self, ang):
-        return ang * 180 / math.pi
 
 class Localization:
     def __init__(self):
@@ -195,9 +190,12 @@ class Localization:
         dataRecording.join()
 
     def recordData(self):
+        locationComputedTime = time.time()
         while True:
+            isMoving = self.getCurTimeInMilliSecs() - self.inMotion < 200
+            isTimeToComputeLocation = self.getCurTimeInMilliSecs() - locationComputedTime > 500
             # Record motion state of vehicle if its in motion
-            if self.getCurTimeInMilliSecs() - self.inMotion < 200:
+            if isMoving:
                 self.locationComputed = False
                 # print("REcord")
 
@@ -208,14 +206,18 @@ class Localization:
                 time.sleep(1/self.dataRecordFreq)
 
             # Compute current location once the vehicle becomes stationary
-            elif len(self.travelTrace) > 0 and self.locationComputed is False:
+            if len(self.travelTrace) > 0 and self.locationComputed is False and isMoving and isTimeToComputeLocation:
                 self.locationComputed = True
-                print("Estimate")
+                locationComputedTime = self.getCurTimeInMilliSecs()
+                # print("Estimate")
                 self.estimateLocation(self.lastKnownLocation.timestamp, self.inMotion)
 
                 # Store the current uninterrupted travel history in the archive
                 self.archiveTravelTrace()
 
+            # Quit if q is pressed
+            if 0xFF == ord('q'):
+                return
 
     def headingCallback(self, msg):
         self.heading = msg.data
@@ -304,21 +306,23 @@ class Localization:
                 diff = dataEnd.getDiff(dataStart)
 
                 # distance from speedometer
-                leftDisSpeed = self.computeDistanceFromAccel(dataStart.speedLeft[0], diff.leftAcceleration, diff.timestamp/1000.0)
-                rightDisSpeed = self.computeDistanceFromAccel(dataStart.speedRight[0], diff.rightAcceleration, diff.timestamp/1000.0)
-                speedDis = self.combineDistance(leftDisSpeed, rightDisSpeed, diff.heading)
+                # leftDisSpeed = self.computeDistanceFromAccel(dataStart.speedLeft[0], diff.leftAcceleration, diff.timestamp/1000.0)
+                # rightDisSpeed = self.computeDistanceFromAccel(dataStart.speedRight[0], diff.rightAcceleration, diff.timestamp/1000.0)
+                # speedDis = self.combineDistance(leftDisSpeed, rightDisSpeed, diff.heading)
 
                 # distance from steps
                 leftDisStep = self.computeDistanceFromSteps(diff.steps[0])
                 rightDisStep = self.computeDistanceFromSteps(diff.steps[1])
                 stepDis = self.combineDistance(leftDisStep, rightDisStep, diff.heading)
 
-                pred = Prediction(speedDis, stepDis, diff.range, diff.heading, diff.direction)
+                pred = Prediction(0, stepDis, diff.range, diff.heading, diff.direction)
                 preds.append(pred)
 
-
+        # print(len(preds), len(times))
+        print(startTime, endTime)
         if len(preds) > 0:
-            x, y, x1, y1 = self.combineLoc(preds)
+            x1, y1 = self.combineLoc(preds)
+
             stS = self.travelTrace.get(times[0]).steps
             stL = self.travelTrace.get(times[-1]).steps
             headS = self.travelTrace.get(times[0]).heading
@@ -327,21 +331,24 @@ class Localization:
 
             cir = 2*math.pi*self.wheelRadius
             d = ((((stL[0] - stS[0])/20.0)*cir) + (((stL[1] - stS[1])/20.0)*cir))/2.0
-            xStep = math.sin(self.degToRad(angle)) * d
-            yStep = math.cos(self.degToRad(angle)) * d
+            xStep = math.sin(math.radians(headL)) * d
+            yStep = math.cos(math.radians(headL)) * d
 
             # # d = (((stL[1] - stS[1]-20)/20.0)*0.207)
-            print(stL[0]- stS[0], stL[1]- stS[1])
-            print(x,y,x1,y1)
+            # print(stL[0]- stS[0], stL[1]- stS[1])
+            # print(x,y,x1,y1)
             
             # print("Distance Exact: ", d, ((stL[0] - stS[0]) + (stL[1] - stS[1]))/200.0, xStep, yStep)
             print("Distance: ", d," Angle:", angle,"X:", xStep,"Y:", yStep)
-            if y1!=0:
-                self.updateCurrentLoc(x1, (abs(y1)/y1)*d,self.lastKnownLocation.heading+angle)
-            else:
-                self.updateCurrentLoc(x1, 0,self.lastKnownLocation.heading+angle)
+            
+            self.updateCurrentLoc(xStep, yStep, headL)
 
-            print("Absolute Location: ",self.lastKnownLocation.x, self.lastKnownLocation.y)
+            # if abs(y1) > 0.05:
+            #     self.updateCurrentLoc(x1, (abs(y1)/y1)*d, headL)
+            # else:
+            #     self.updateCurrentLoc(x1, 0, headL)
+
+            print("Absolute Location: ", self.lastKnownLocation.x, self.lastKnownLocation.y, self.lastKnownLocation.heading)
             # sys.exit()
 
     def combineLoc(self, preds):
@@ -349,22 +356,23 @@ class Localization:
         ySp=ySt = 0
 
         for pred in preds:
-            coordSp = pred.getCoord(pred.speedDis)
-            coordSt = pred.getCoord(pred.stepDis)
+            # coordSp = pred.getCoord(pred.speedDis)
+            x, y = pred.getCoord(pred.stepDis)
 
             if pred.direction == Direction.Backward:
-                xSp += -coordSp[0][0]
-                ySp += -coordSp[0][1]
-                xSt += -coordSt[1][0]
-                ySt += -coordSt[1][1]
+                # xSp += -coordSp[0][0]
+                # ySp += -coordSp[0][1]
+                xSt += -x
+                ySt += -y
                 
-            else:
-                xSp += coordSp[0][0]
-                ySp += coordSp[0][1]
-                xSt += coordSt[1][0]
-                ySt += coordSt[1][1]
+            elif pred.direction == Direction.Forward:
+                # xSp += coordSp[0][0]
+                # ySp += coordSp[0][1]
+                xSt += x
+                ySt += y
 
-        return xSp, ySp, xSt, ySt
+        # return xSp, ySp, xSt, ySt
+        return xSt, ySt
 
     def updateCurrentLoc(self, x, y, heading):
         self.lastKnownLocation.updateLoc(x, y, heading, self.inMotion)
@@ -393,14 +401,8 @@ class Localization:
         #r = rIn + rOut
         r = (left/abs(angle)) + (right/abs(angle)) - self.wheelGap
 
-        # return (2 * math.sin(self.degToRad(angle)/2) * (rIn + rOut))/2
-        return math.sin(self.degToRad(angle)/2) * r
-
-    def degToRad(self, ang):
-        return ang * math.pi / 180
-
-    def radToDeg(self, ang):
-        return ang * 180 / math.pi
+        # return (2 * math.sin(math.radians(angle)/2) * (rIn + rOut))/2
+        return math.sin(math.radians(angle)/2) * r
 
     def currentLoc(self):
         startTime = self.lastKnownLocation.timestamp

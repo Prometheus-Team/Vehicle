@@ -7,7 +7,7 @@ from geometry_msgs.msg import Point
 from nav_msgs.msg import GridCells
 
 from vehicle_lib.msg import Distance, Location, IntArr
-from vehicle_lib.srv import GetMap, InitMap
+from vehicle_lib.srv import GetMap, InitMap, GetShortestPath, GetMapResponse, InitMapResponse
 from tf import transformations as tra
 
 import math, time
@@ -27,9 +27,11 @@ class MapBuilder:
         self.maxCorrectDistance = 300
         self.bufferLayer = 7
         self.worldToMapRatio = 0.02    # 1 cell = 0.02 meters in the world 
+        self.extraBeyondBorder = 100  # in grid cell count
 
         self.width = width
         self.height = height
+        self.curLocC = 0
 
 
         self.pubScanArea = rospy.Publisher('/pi/api/scanCmd', Empty, queue_size=10)
@@ -43,41 +45,42 @@ class MapBuilder:
         self.pubCurLocViz = rospy.Publisher('/viz/curLoc', GridCells, queue_size=10)
 
         # Initialize the map and return it when requested 
-        self.initMapSrv = rospy.Service('/pi/mapper/initMap', InitMap, self.getMapHandler)
-        self.getMapSrv = rospy.Service('/pi/mapper/getMap', GetMap, self.getMapHandler)
+        self.initMapSrv = rospy.Service('/pi/mapper/initMap', InitMap, self.initMapCallback)
+        self.getMapSrv = rospy.Service('/pi/mapper/getMap', GetMap, self.getMapCallback)
 
+        self.getShortestPathSrv = rospy.ServiceProxy('/pi/travel/getShortestPath', GetShortestPath)
 
         self.initMap(self.width, self.height)
 
     def initMap(self, x, y, layer=11):
         self.map = np.zeros((int(layer), int(x), int(y)))
 
-    def initMapHandler(self, msg):
+    def initMapCallback(self, msg):
         try:
-            self.initMap(msg.width, msg.height)
-            return True
+            self.initMap(msg.width+self.extraBeyondBorder, msg.height+self.extraBeyondBorder)
+            return InitMapResponse(True)
 
         except:
-            return False
+            return InitMapResponse(False)
 
     def getMap(self):
         return self.map[0:10,:,:].sum(axis=0) > 0
 
-    def getMapHandler(self, msg):
+    def getMapCallback(self, msg):
         try:
             for i in range(3):
                 if not self.scanCompleted:
                     time.sleep(3)
                 
                 elif not self.scanCompleted and i >= 2:
-                    return []
+                    return GetMapResponse([])
 
                 else:
                     m = self.getMap()
-                    return self.convertMapToArr(m)
+                    return GetMapResponse(self.convertMapToArr(m))
 
         except:
-            return []
+            return GetMapResponse([])
 
     def curLocListener(self, msg):
         self.setCurLoc(msg.data)
@@ -99,24 +102,35 @@ class MapBuilder:
 
     def scanCallback(self, msg):
         self.scanCompleted = False
-        curLoc = (0, 0)
-        dir = 0
+        curLocs = [(0, 0), (500,300), (-400,800),(-300,-600),(400,-600)]
+        curLoc = curLocs[self.curLocC%5]
+        dirs = [0, 30, 45, -60, -120]
+        dir = dirs[self.curLocC%5]
+        dests = [(200,350),(200,350),(200,350),(200,350),(200,350)]
+        dest = dests[self.curLocC%5]
+        # curLoc = self.curLoc
+        # dir = self.heading
         i = 180-msg.angle
 
         if msg.distance <= self.maxCorrectDistance:
             if i>10 and i<170:
-                for j in range(-10, 11):
-                    pt = self.convertPointToGrid(curLoc, self.convertRangeToPoint(msg.distance, i+j), dir)
-                    self.plotPointOnMap(pt)
+                j = 0
+                # for j in range(-10, 11):
+                pt = self.convertPointToGrid(self.convertRangeToGlobalPoint(msg.distance, i+j, curLoc, dir))
+                self.plotPointOnMap(pt)
 
             else:
-                pt = self.convertPointToGrid(curLoc, self.convertRangeToPoint(msg.distance, i), dir)
+                pt = self.convertPointToGrid(self.convertRangeToGlobalPoint(msg.distance, i, curLoc, dir))
                 self.plotPointOnMap(pt)
 
         if msg.last:
+            print("Visualizing.....")
             self.scanCompleted = True
+            self.curLocC += 1
+
             self.pubMapViz.publish(self.convertMapToPoints())
-            self.pubCurLocViz.publish()
+            # self.pubPathViz.publish(self.convertCurLocToPoint(gridPath))
+            self.pubCurLocViz.publish(self.convertCurLocToPoint([self.convertPointToGrid(curLoc)]))
 
         self.lastScanTime = time.time()
 
@@ -133,31 +147,38 @@ class MapBuilder:
 
         return round(pt[0], 3), round(pt[1], 3)
 
-        # if angleN > math.pi/2:
-        #     return round(-math.cos((math.pi) - angleN) * distance, 3), round(math.sin((math.pi)-angleN) * distance, 3)
-        
-        # return round(math.cos(angleN) * distance, 3), round(math.sin(angleN) * distance, 3)
+    def convertRangeToGlobalPoint(self, distance, angle, curLoc, heading=0):
+        angleN = self.degToRad(angle)
 
-    def convertPointToGrid(self, curLoc, point, heading=0):
+        pt = self.transform((distance,0), angleN)
+
+        point = pt[:2]
+
         angleN = self.degToRad(heading)
 
-        pt = self.transform(curLoc, point, angleN)
-        
+        pt = self.transform(point, angleN, curLoc)
+
+        return round(pt[0], 3), round(pt[1], 3)
+
+
+    def convertPointToGrid(self, pt):
         return math.floor((self.width/2) + pt[0]), math.floor((self.height/2) + pt[1])
 
     def plotPointOnMap(self, point):
-        layer = self.map[10, int(point[1]), int(point[0])]
-        if layer < 10:
-            x = int(point[1])
-            y = int(point[0])
-            self.map[int(layer), x, y] = 1
-            self.plotBufferOnMap(x, y, layer)
-            self.map[10, int(point[1]), int(point[0])] += 1
+        if point[0]>0 and point[1]>0 and point[0] < self.width and point[1] < self.height:
+            layer = self.map[10, int(point[1]), int(point[0])]
+            if layer < 10:
+                x = int(point[1])
+                y = int(point[0])
+                self.map[int(layer), x, y] = 1
+                self.plotBufferOnMap(x, y, layer)
+                self.map[10, int(point[1]), int(point[0])] += 1
 
     def plotBufferOnMap(self, x, y, layer):
         buf = self.getBuffer(x, y)
         for i in buf:
-            self.map[int(layer), i[0], i[1]] = 2
+            if i[0] < self.width and i[1] < self.height:
+                self.map[int(layer), i[0], i[1]] = 2
 
     def getBuffer(self, x, y):
         layer = self.bufferLayer
@@ -178,7 +199,7 @@ class MapBuilder:
         point = (point[0], point[1], 0)
         traVec = (traVec[0], traVec[1], 0)
         mt = tra.translation_matrix(traVec)
-        mr = tra.rotation_matrix(rotAng, (0, 0, 1),(0,0,0))
+        mr = tra.rotation_matrix(rotAng, (0, 0, 1))
         mat = mt.dot(mr)    # rotate then translate
         # mat = mr.dot(mt)  # translate then rotate
         point = [point[0], point[1], 0, 1]
@@ -194,6 +215,11 @@ class MapBuilder:
         points.cell_width = self.cellWidth
 
         map = self.getMap()
+        map[0,0] = 1
+        map[0, self.height-1]=1
+        map[self.width-1,0]=1
+        map[self.width-1, self.height-1]=1
+
         for i in range(len(map)):
             for j in range(len(map[0])):
                 if map[i, j]>0:
@@ -203,6 +229,24 @@ class MapBuilder:
                     m.y = j * self.cellHeight
 
                     points.cells.append(m)
+
+        return points
+
+    def convertCurLocToPoint(self, curLocs):
+        points = GridCells()        
+        pts = 0
+        points.header.frame_id = "/my_frame"
+        points.header.stamp = rospy.Time.now()
+        points.cell_height = self.cellHeight
+        points.cell_width = self.cellWidth
+
+        for loc in curLocs:
+            pts += 1
+            m = Point()
+            m.x = loc[0] * self.cellWidth
+            m.y = loc[1] * self.cellHeight
+
+            points.cells.append(m)
 
         return points
 
@@ -267,3 +311,9 @@ if __name__=='__main__':
 # # print(x.transform((2,4),(1,1,0),math.pi/2))
 # # print(x.transform((2,4),(0,0,0),math.pi/2))
 # print(x.testRange())
+
+
+        # if angleN > math.pi/2:
+        #     return round(-math.cos((math.pi) - angleN) * distance, 3), round(math.sin((math.pi)-angleN) * distance, 3)
+        
+        # return round(math.cos(angleN) * distance, 3), round(math.sin(angleN) * distance, 3)

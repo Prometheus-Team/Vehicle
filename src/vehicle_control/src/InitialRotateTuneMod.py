@@ -182,7 +182,7 @@ class Controller:
 
 def main():
     rospy.init_node("InitialRotatePID")
-    pidParamVel=PIDParam(1.0,0,0)
+    pidParamVel=PIDParam(0.9,0.01,0.1)
     pidParamPos=PIDParam(0.1,0.01,0.1)
     pidParamW=PIDParam(0.1,0.01,0.1)
     a = Controller(pidParamVel,pidParamPos,pidParamW)
