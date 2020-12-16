@@ -1,0 +1,14 @@
+<launch>
+    <node pkg="rosserial_python" type="serial_node.py" name="ArduinoConnection" args="/dev/ttyACM0"/>
+
+    <node pkg="vehicle_control" type="vehicleAPI.py" name="api_node">
+        <param  name="phoneIP" value="http://192.168.0.101:8080/sensors.json"></param>
+    </node>
+    
+    <node pkg="vehicle_control" type="manualControl.py" name="manual_control_node"/>
+
+    <node pkg="vehicle_control" type="master.py" name="master_node">
+        <param  name="raspberryIP" value="http://192.168.0.101:8000/stream.mjpg"></param>
+    </node>
+
+</launch>

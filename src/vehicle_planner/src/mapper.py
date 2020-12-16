@@ -89,7 +89,7 @@ class MapBuilder:
         return self.curLoc
 
     def setCurLoc(self, curLoc):
-        self.curLoc = curLoc
+        self.curLoc = self.convertPointToGrid(curLoc)
 
     def headingListener(self, msg):
         self.setHeading(msg.data)

@@ -67,7 +67,7 @@ class SensorData:
 
 class Master:
     def __init__(self, ip):
-        self.IP = ip
+        self.cameraURL = ip
         self.sensorStreamConnected = False
         self.cmdRecvConnected = False
 
@@ -141,29 +141,9 @@ class Master:
             cmd.setDaemon(True)
             cmd.start()
             
-
         except Exception as e:
             print(e)
             print("Unable to connect to device") 
-
-    def imageToSha1(self, URL="http://192.168.0.147:8000/stream.mjpg"):
-        inputStream = cv2.VideoCapture(URL)
-
-        while True:
-            _ret, image = inputStream.read()
-            if _ret == False:
-                break
-            self.imageSha = hashlib.sha1(image).hexdigest()
-
-    def startStreamingSensorData(self):
-        sense = threading.Thread(target=self.sendSensorData)
-        sense.start()
-        sense.join()
-
-        # # todo: initialize this thread somewhere
-        # cmd = threading.Thread(target=self.imageToSha1)
-        # cmd.start()
-        # cmd.join()
 
     def sendSensorData(self):
         if not self.sensorStreamConnected:
@@ -281,8 +261,8 @@ class Master:
             
 
     def getSensorData(self):
-        URL = "http://192.168.0.147:8000/stream.mjpg"
-        inputStream = cv2.VideoCapture(URL)
+        # URL = "http://192.168.0.147:8000/stream.mjpg"
+        inputStream = cv2.VideoCapture(self.cameraURL)
         _ret, image = inputStream.read()
         imageHash = hashlib.sha1(image).hexdigest()
 
@@ -531,7 +511,8 @@ class Master:
 def main():
     rospy.init_node("MasterNode")
     # a = Master('192.168.0.1')
-    a = Master('localhost')
+    cameraIP = rospy.get_param('~raspberryIP')
+    Master(cameraIP)
     print("Master node initiated...")
     rospy.spin()
 

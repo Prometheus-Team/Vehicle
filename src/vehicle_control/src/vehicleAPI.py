@@ -11,12 +11,14 @@ import pyrr, urllib, json, time, math, threading
 
 
 class VehicleAPI:
-    URL = "http://192.168.0.101:8080/sensors.json"
-    def __init__(self):
+    # URL = "http://192.168.0.101:8080/sensors.json"
+    def __init__(self, phoneURL, speed, pwm):
+        self.URL = phoneURL
+        
         self.seqC = 0       # sequence number for the streamed values
         self.defaultScannerStep = 2 # 2 degrees rotated on every step
         self.scannerInitAngle = 90      # servo motor initial angle
-        self.speedToPWMRatio = self.computeSpeedToPWMRatio(62.0,0.99)        
+        self.speedToPWMRatio = self.computeSpeedToPWMRatio(pwm,speed)        
         self.minDistanceToObstacle = 50 # in centimeters
         self.maxTimeForValidSpeed = 0.7 # in seconds
         self.lastSpeedCmd = (0, 0)
@@ -141,6 +143,7 @@ class VehicleAPI:
             except Exception as e:
                 print(e)
                 print("Unable to connect to orientation sensor")
+                time.sleep(3)
                 continue
 
     def computeSpeedToPWMRatio(self, pwm, speed):
@@ -160,7 +163,11 @@ class VehicleAPI:
 
 def main():
     rospy.init_node("VehicleAPI")
-    VehicleAPI()
+    phoneIP = rospy.get_param('~phoneIP')
+    speed = rospy.get_param('~speed')
+    pwm = rospy.get_param('~pwm')
+    print(speed, pwm)
+    VehicleAPI(phoneIP, speed, pwm)
     rospy.spin()
 
 if __name__=='__main__':

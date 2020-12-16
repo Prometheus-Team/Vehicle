@@ -130,25 +130,34 @@ class Controller:
         
         self.sendSpeedCmd(self.rightWheelVelocityGoal, self.leftWheelVelocityGoal)
 
-
     def positionPID(self):
-        positionError= self.goalPosition - self.currentPosition
+        self.goalPosition=self.goalPosition.astype(numpy.float32)
+        self.currentPosition=self.currentPosition.astype(numpy.float32)
+        positionError= numpy.subtract(self.goalPosition ,self.currentPosition)
         self.posIntegError= self.posIntegError + positionError * self.timeDurationPos
-
-        posDerivative = (positionError- self.prevErrorPos)/self.timeDurationPos
+        #print(positionError)
+        self.prevErrorPos=self.prevErrorPos.astype(numpy.float32)
+        posDerivative = numpy.subtract(positionError, self.prevErrorPos)*(1/self.timeDurationPos)
+        #print(posDerivative)
 
         output= self.PIDParamPos.proportional *positionError + self.PIDParamPos.integral *self.posIntegError +self.PIDParamPos.derivative *posDerivative
-
 
         self.prevErrorPos=positionError
 
     
         v= (output[0] **2 + output[1]**2)**0.5
+        if output[0]<0:
+            self.rightWheelVelocityGoal= ((2 * v)/ (2*self.wheelRadius)) *-1.0
+        
+            self.leftWheelVelocityGoal= self.rightWheelVelocityGoal
+            self.goalVelocity=[self.rightWheelVelocityGoal, self.leftWheelVelocityGoal]
+        else: 
+            self.rightWheelVelocityGoal= ((2 * v)/ (2*self.wheelRadius))
+        
+            self.leftWheelVelocityGoal= self.rightWheelVelocityGoal
+            self.goalVelocity=[self.rightWheelVelocityGoal, self.leftWheelVelocityGoal]
 
-        self.rightWheelVelocityGoal= (2 * v)/ (2*self.wheelRadius)
-    
-        self.leftWheelVelocityGoal= self.rightWheelVelocityGoal
-        self.goalVelocity=[self.rightWheelVelocityGoal, self.leftWheelVelocityGoal]
+        return self.goalVelocity
 
     def velocityPID(self):
         velError= self.goalVelocity- self.currentVelocity
@@ -197,8 +206,8 @@ class Controller:
 def main():
     rospy.init_node("InitialRotatePID")
     pidParamVel=PIDParam(1,0,0)
-    pidParamPos=PIDParam(0.1,0.01,0.1)
-    pidParamW=PIDParam(0.1,0.01,0.1)
+    pidParamPos=PIDParam(0.1,0.01,0.01)
+    pidParamW=PIDParam(0.001,0.001,0.0001)
     Controller(pidParamVel,pidParamPos,pidParamW)
     rospy.spin()
 

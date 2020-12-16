@@ -269,7 +269,6 @@ class Localization:
 
     def getCurTimeInMilliSecs(self):
         return int(time.time() * 1000)
-        # return time.time()
 
     def getTravelData(self, startTime, endTime):
         # print(self.travelTrace)
